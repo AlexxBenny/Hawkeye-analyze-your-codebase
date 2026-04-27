@@ -20,7 +20,6 @@ replaces the metrics block with self-describing data.
 from dataclasses import dataclass
 from typing import Optional
 
-
 # ── Thresholds ────────────────────────────────────────────────
 # All thresholds are derived from Robert C. Martin's principles
 # and industry-standard static analysis benchmarks.

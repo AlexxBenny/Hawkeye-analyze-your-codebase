@@ -1,6 +1,6 @@
 """Tests for the dependency graph (core/graph.py)."""
 
-from hawkeye.core.graph import DependencyGraph, NodeInfo, EdgeInfo
+from hawkeye.core.graph import DependencyGraph, EdgeInfo, NodeInfo
 
 
 class TestGraphQuery:
@@ -76,8 +76,8 @@ class TestGraphBuild:
     """Tests for building a graph from scan + analysis results."""
 
     def test_build_from_data(self, tmp_project):
-        from hawkeye.core.scanner import scan_project
         from hawkeye.core.analyzer import analyze_project
+        from hawkeye.core.scanner import scan_project
 
         index = scan_project(str(tmp_project))
         project_name = tmp_project.name
@@ -90,8 +90,8 @@ class TestGraphBuild:
         assert graph.project_name == project_name
 
     def test_edges_match_imports(self, tmp_project):
-        from hawkeye.core.scanner import scan_project
         from hawkeye.core.analyzer import analyze_project
+        from hawkeye.core.scanner import scan_project
 
         index = scan_project(str(tmp_project))
         project_name = tmp_project.name

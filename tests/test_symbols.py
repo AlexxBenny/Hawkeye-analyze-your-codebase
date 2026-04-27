@@ -5,22 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from hawkeye.core.symbols import (
-    SymbolId,
-    SymbolDefinition,
-    SymbolReference,
-    SymbolEdge,
-    SymbolRegistry,
-    SymbolGraph,
-    resolve_references,
-)
-from hawkeye.core.analyzer import (
-    SymbolInfo,
-    SymbolTable,
-    ResolvedImport,
-    ImportDetail,
-)
-
+from hawkeye.core.analyzer import (ImportDetail, ResolvedImport, SymbolInfo,
+                                   SymbolTable)
+from hawkeye.core.symbols import (SymbolDefinition, SymbolEdge, SymbolGraph,
+                                  SymbolId, SymbolReference, SymbolRegistry,
+                                  resolve_references)
 
 # ── SymbolId ──────────────────────────────────────────────────
 
@@ -332,8 +321,8 @@ class TestSymbolsIntegration:
     """Integration tests using temp project fixtures."""
 
     def test_registry_from_real_project(self, tmp_project: Path):
-        from hawkeye.core.scanner import scan_project
         from hawkeye.core.analyzer import analyze_project
+        from hawkeye.core.scanner import scan_project
 
         index = scan_project(str(tmp_project))
         _, symbols = analyze_project(index, tmp_project.name)

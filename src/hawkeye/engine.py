@@ -10,19 +10,13 @@ from pathlib import Path
 from typing import Optional
 
 from .config import HawkeyeConfig
-from .core import (
-    ModuleInfo, scan_project,
-    ResolvedImport, analyze_project,
-    DependencyGraph,
-    ModuleMetrics, ProjectMetrics,
-    calculate_module_metrics, calculate_project_metrics,
-    CycleReport, detect_cycles,
-    Violation, check_all_rules,
-    SymbolRegistry, SymbolGraph, SymbolReference,
-    resolve_references,
-    derive_module_insights, insights_compact, insights_full,
-    classify_risk,
-)
+from .core import (CycleReport, DependencyGraph, ModuleInfo, ModuleMetrics,
+                   ProjectMetrics, ResolvedImport, SymbolGraph,
+                   SymbolReference, SymbolRegistry, Violation, analyze_project,
+                   calculate_module_metrics, calculate_project_metrics,
+                   check_all_rules, classify_risk, derive_module_insights,
+                   detect_cycles, insights_compact, insights_full,
+                   resolve_references, scan_project)
 from .core.analyzer import SymbolTable
 
 

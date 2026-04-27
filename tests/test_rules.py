@@ -2,18 +2,11 @@
 
 import pytest
 
-from hawkeye.core.rules import (
-    Violation,
-    check_layer_rules,
-    check_forbidden_rules,
-    check_independence_rules,
-    check_all_rules,
-    _module_matches,
-    _find_layer,
-)
-from hawkeye.core.graph import DependencyGraph, NodeInfo, EdgeInfo
-from hawkeye.config import RulesConfig, LayerConfig
-
+from hawkeye.config import LayerConfig, RulesConfig
+from hawkeye.core.graph import DependencyGraph, EdgeInfo, NodeInfo
+from hawkeye.core.rules import (Violation, _find_layer, _module_matches,
+                                check_all_rules, check_forbidden_rules,
+                                check_independence_rules, check_layer_rules)
 
 # ── Helpers ───────────────────────────────────────────────────
 

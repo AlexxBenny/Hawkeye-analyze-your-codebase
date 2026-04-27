@@ -8,9 +8,9 @@ and parseable by AI coding agents.
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ..core.cycles import CycleReport
     from ..core.graph import DependencyGraph
     from ..core.metrics import ModuleMetrics, ProjectMetrics
-    from ..core.cycles import CycleReport
 
 
 def render_dependency_tree(graph: "DependencyGraph") -> str:

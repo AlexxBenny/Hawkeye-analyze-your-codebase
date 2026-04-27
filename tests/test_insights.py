@@ -2,15 +2,9 @@
 
 import pytest
 
-from hawkeye.core.insights import (
-    Insight,
-    derive_module_insights,
-    insights_compact,
-    insights_full,
-    classify_risk,
-    _THRESHOLDS,
-)
-
+from hawkeye.core.insights import (_THRESHOLDS, Insight, classify_risk,
+                                   derive_module_insights, insights_compact,
+                                   insights_full)
 
 # ── Insight dataclass ─────────────────────────────────────────
 

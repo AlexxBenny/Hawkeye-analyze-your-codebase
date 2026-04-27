@@ -3,25 +3,17 @@
 Re-exports key types so other packages can import from hawkeye.core directly.
 """
 
-from .scanner import ModuleInfo, scan_project
 from .analyzer import ResolvedImport, SymbolInfo, SymbolTable, analyze_project
-from .graph import DependencyGraph
-from .metrics import (
-    ModuleMetrics, ProjectMetrics,
-    calculate_module_metrics, calculate_project_metrics,
-    format_metrics_table,
-)
 from .cycles import CycleReport, detect_cycles
+from .graph import DependencyGraph
+from .insights import (Insight, classify_risk, derive_module_insights,
+                       insights_compact, insights_full)
+from .metrics import (ModuleMetrics, ProjectMetrics, calculate_module_metrics,
+                      calculate_project_metrics, format_metrics_table)
 from .rules import Violation, check_all_rules
-from .symbols import (
-    SymbolRegistry, SymbolGraph, SymbolReference,
-    resolve_references,
-)
-from .insights import (
-    Insight, derive_module_insights,
-    insights_compact, insights_full,
-    classify_risk,
-)
+from .scanner import ModuleInfo, scan_project
+from .symbols import (SymbolGraph, SymbolReference, SymbolRegistry,
+                      resolve_references)
 
 __all__ = [
     "ModuleInfo", "scan_project",

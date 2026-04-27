@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
+from hawkeye.core.analyzer import (ImportDetail, ResolvedImport, SymbolInfo,
+                                   SymbolTable)
+from hawkeye.core.graph import DependencyGraph, EdgeInfo, NodeInfo
 from hawkeye.core.scanner import ModuleInfo
-from hawkeye.core.graph import DependencyGraph, NodeInfo, EdgeInfo
-from hawkeye.core.analyzer import ResolvedImport, ImportDetail, SymbolTable, SymbolInfo
-
 
 # ── Temporary project fixtures ─────────────────────────────────
 

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from hawkeye.engine import HawkeyeEngine, _hash_file
 from hawkeye.config import HawkeyeConfig
+from hawkeye.engine import HawkeyeEngine, _hash_file
 
 
 class TestHashFile:

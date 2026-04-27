@@ -9,9 +9,9 @@ Usage:
     python -m hawkeye.mcp_server --project .    # pre-analyze on startup
 """
 
-import sys
-import json
 import argparse
+import json
+import sys
 
 # ── Engine cache ────────────────────────────────────────────────
 

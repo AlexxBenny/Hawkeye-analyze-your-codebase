@@ -5,12 +5,12 @@ subgraph extraction, filtering, topological sort, transitive closure,
 path finding, and impact analysis.
 """
 
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
-from collections import deque
 
-from .scanner import ModuleInfo
 from .analyzer import ResolvedImport
+from .scanner import ModuleInfo
 
 
 @dataclass

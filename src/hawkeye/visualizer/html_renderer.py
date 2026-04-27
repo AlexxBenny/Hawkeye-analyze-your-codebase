@@ -6,8 +6,8 @@ Features: zoom/pan, click-to-isolate, search, cycle highlighting,
 coupling heatmap, and a details sidebar.
 """
 
-import json
 import hashlib
+import json
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

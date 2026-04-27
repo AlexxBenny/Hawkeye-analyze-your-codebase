@@ -2,14 +2,9 @@
 
 from pathlib import Path
 
-from hawkeye.core.scanner import (
-    ModuleInfo,
-    scan_project,
-    _count_lines,
-    _path_to_module,
-    _should_exclude,
-    _matches_patterns,
-)
+from hawkeye.core.scanner import (ModuleInfo, _count_lines, _matches_patterns,
+                                  _path_to_module, _should_exclude,
+                                  scan_project)
 
 
 class TestCountLines:

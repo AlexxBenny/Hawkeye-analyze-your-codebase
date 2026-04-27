@@ -77,8 +77,8 @@ def _ensure_utf8():
 
 def _make_engine(args, *, use_config: bool = False):
     """Create and run an engine from CLI args."""
-    from .engine import HawkeyeEngine
     from .config import HawkeyeConfig
+    from .engine import HawkeyeEngine
 
     if use_config and hasattr(args, "config") and args.config:
         config = HawkeyeConfig.from_toml(Path(args.config))

@@ -5,8 +5,8 @@ Supports clustering by package, HSL coloring by source file, and
 cycle edge highlighting.
 """
 
-from typing import TYPE_CHECKING
 import hashlib
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..core.graph import DependencyGraph

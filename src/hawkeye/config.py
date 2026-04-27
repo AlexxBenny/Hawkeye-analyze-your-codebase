@@ -4,10 +4,10 @@ Supports TOML config files (hawkeye.toml) with CLI override capability.
 Walks up from the project directory to find the nearest config file.
 """
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
-import sys
 
 if sys.version_info >= (3, 11):
     import tomllib

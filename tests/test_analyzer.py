@@ -3,20 +3,12 @@
 import ast
 import textwrap
 
+from hawkeye.core.analyzer import (ResolvedImport, SymbolInfo, SymbolTable,
+                                   _cognitive_complexity,
+                                   _cyclomatic_complexity, _normalize_import,
+                                   _resolve_relative_import, analyze_file,
+                                   analyze_file_full, analyze_project)
 from hawkeye.core.scanner import ModuleInfo
-from hawkeye.core.analyzer import (
-    ResolvedImport,
-    SymbolTable,
-    SymbolInfo,
-    analyze_file,
-    analyze_file_full,
-    analyze_project,
-    _resolve_relative_import,
-    _normalize_import,
-    _cyclomatic_complexity,
-    _cognitive_complexity,
-)
-
 
 # ── Relative import resolution ────────────────────────────────
 

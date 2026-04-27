@@ -17,8 +17,7 @@ Data flow:
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .analyzer import SymbolTable, SymbolInfo, ResolvedImport, ImportDetail
-
+from .analyzer import ImportDetail, ResolvedImport, SymbolInfo, SymbolTable
 
 # ── Data types ────────────────────────────────────────────────
 

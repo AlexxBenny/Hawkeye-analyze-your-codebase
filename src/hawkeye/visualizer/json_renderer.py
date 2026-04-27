@@ -8,9 +8,9 @@ import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from ..core.cycles import CycleReport
     from ..core.graph import DependencyGraph
     from ..core.metrics import ModuleMetrics, ProjectMetrics
-    from ..core.cycles import CycleReport
 
 
 def render_json(

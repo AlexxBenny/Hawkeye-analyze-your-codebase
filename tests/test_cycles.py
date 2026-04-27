@@ -1,12 +1,7 @@
 """Tests for cycle detection (core/cycles.py)."""
 
-from hawkeye.core.cycles import (
-    Cycle,
-    CycleReport,
-    detect_cycles,
-    _find_sccs,
-)
-from hawkeye.core.graph import DependencyGraph, NodeInfo, EdgeInfo
+from hawkeye.core.cycles import Cycle, CycleReport, _find_sccs, detect_cycles
+from hawkeye.core.graph import DependencyGraph, EdgeInfo, NodeInfo
 
 
 class TestFindSCCs:
@@ -131,9 +126,9 @@ class TestDetectCyclesOnRealProject:
     """Integration: detect cycles on the cyclic fixture project."""
 
     def test_cyclic_project(self, cyclic_project):
-        from hawkeye.core.scanner import scan_project
         from hawkeye.core.analyzer import analyze_project
         from hawkeye.core.graph import DependencyGraph
+        from hawkeye.core.scanner import scan_project
 
         index = scan_project(str(cyclic_project))
         project_name = cyclic_project.name

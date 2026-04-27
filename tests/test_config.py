@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from hawkeye.config import HawkeyeConfig, RulesConfig, LayerConfig, DEFAULT_EXCLUDES
+from hawkeye.config import (DEFAULT_EXCLUDES, HawkeyeConfig, LayerConfig,
+                            RulesConfig)
 
 
 class TestDefaults:

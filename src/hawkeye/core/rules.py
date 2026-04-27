@@ -4,13 +4,13 @@ Supports layered architecture rules, forbidden import rules, and
 independence contracts. Inspired by Tach, import-linter, and Deply.
 """
 
+import fnmatch
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-import fnmatch
 
 if TYPE_CHECKING:
-    from .graph import DependencyGraph
     from ..config import RulesConfig
+    from .graph import DependencyGraph
 
 
 @dataclass

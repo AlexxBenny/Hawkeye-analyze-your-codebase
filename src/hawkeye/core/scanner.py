@@ -5,8 +5,8 @@ and builds a structured index of all discoverable modules. Handles
 __init__.py packages, namespace packages, and configurable exclusions.
 """
 
-import os
 import fnmatch
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional

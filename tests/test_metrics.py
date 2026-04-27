@@ -1,14 +1,10 @@
 """Tests for coupling metrics and health scoring (core/metrics.py)."""
 
-from hawkeye.core.metrics import (
-    ModuleMetrics,
-    ProjectMetrics,
-    calculate_module_metrics,
-    calculate_project_metrics,
-    format_metrics_table,
-    _assess_health,
-)
 from hawkeye.core.analyzer import SymbolTable
+from hawkeye.core.metrics import (ModuleMetrics, ProjectMetrics,
+                                  _assess_health, calculate_module_metrics,
+                                  calculate_project_metrics,
+                                  format_metrics_table)
 
 
 class TestAssessHealth:
