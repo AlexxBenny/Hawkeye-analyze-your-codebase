@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "hawkeye-analyzer"
+version = "2.0.0"
+description = "Python dependency graph analyzer, architecture enforcer, and MCP server for AI coding agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Alex"}]
+keywords = ["dependency", "architecture", "mcp", "static-analysis", "visualization"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Quality Assurance",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+all = ["mcp>=1.0"]
+dev = ["pytest", "mcp>=1.0"]
+
+[project.scripts]
+hawkeye = "hawkeye.cli:main"
+hawkeye-mcp = "hawkeye.server.mcp:main"
+
+[project.urls]
+Homepage = "https://github.com/alex/hawkeye"
+Issues = "https://github.com/alex/hawkeye/issues"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hawkeye*"]

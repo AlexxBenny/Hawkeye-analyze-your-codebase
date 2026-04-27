@@ -1,0 +1,44 @@
+# Hawkeye Configuration
+# Place this file in your project root as hawkeye.toml
+
+[project]
+# name = "MyProject"        # Override auto-detected project name
+# path = "."                 # Project root (usually auto-detected)
+
+[scan]
+# Directories to skip during file scanning
+exclude_dirs = [
+    ".git", "node_modules", "__pycache__", ".venv", "venv",
+    "build", "dist", ".mypy_cache", ".pytest_cache",
+    "site-packages", ".tox", ".eggs",
+]
+# Module name patterns to exclude (glob syntax)
+# exclude_patterns = ["*.tests.*", "*.migrations.*"]
+
+# Module name patterns to include exclusively
+# include_patterns = ["myproject.*"]
+
+[analysis]
+# max_depth = 3             # Collapse modules deeper than this
+# max_hops = 5              # Filter modules beyond N hops from root
+# include_external = false  # Include stdlib/third-party imports
+
+[output]
+# format = "text"           # text, json, dot, html
+# file = "hawkeye_output"   # Output file path
+
+# ── Architecture Rules ──────────────────────────────────────────
+
+# [rules.layers]
+# order = ["domain", "application", "infrastructure", "presentation"]
+# direction = "downward"    # Higher layers can import lower, not reverse
+# allow = [
+#     { from = "infrastructure.db", to = "domain.models" },
+# ]
+
+# [[rules.forbidden]]
+# from = "presentation.*"
+# to = ["infrastructure.*", "domain.repository.*"]
+
+# [[rules.independence]]
+# groups = [["auth.*", "billing.*", "notifications.*"]]
