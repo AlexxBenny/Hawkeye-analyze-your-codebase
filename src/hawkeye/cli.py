@@ -118,8 +118,13 @@ def _run_analyze(args) -> int:
         output = ""
 
     if args.output:
-        Path(args.output).write_text(output, encoding="utf-8")
-        print(f"Output written to {args.output}")
+        out_path = Path(args.output)
+        # Auto-append extension if missing
+        ext_map = {"html": ".html", "json": ".json", "dot": ".dot", "text": ".txt"}
+        if not out_path.suffix and args.format in ext_map:
+            out_path = out_path.with_suffix(ext_map[args.format])
+        out_path.write_text(output, encoding="utf-8")
+        print(f"Output written to {out_path}")
     else:
         print(output)
     return 0
@@ -156,6 +161,8 @@ def _run_show(args) -> int:
 
     html = render_html(graph, engine.module_metrics, engine.cycle_report.cycle_count)
     out_path = Path(args.output) if args.output else Path(args.project) / "hawkeye_graph.html"
+    if not out_path.suffix:
+        out_path = out_path.with_suffix(".html")
     out_path.write_text(html, encoding="utf-8")
     print(f"Graph written to {out_path}")
     webbrowser.open(out_path.as_uri())

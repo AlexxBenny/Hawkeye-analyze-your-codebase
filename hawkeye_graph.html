@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hawkeye — Hawkeye</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0f0f1a; color: #c8c8e0; font-family: 'Segoe UI', Inter, system-ui, sans-serif; overflow: hidden; }
+
+  #container { display: flex; height: 100vh; }
+  #graph-area { flex: 1; position: relative; }
+  svg { width: 100%; height: 100%; }
+
+  /* Sidebar */
+  #sidebar { width: 340px; background: #16162a; border-left: 1px solid #2a2a4a;
+    padding: 16px; overflow-y: auto; font-size: 13px; transition: transform 0.3s; }
+  #sidebar h2 { color: #a0a0ff; font-size: 15px; margin-bottom: 12px; }
+  #sidebar h3 { color: #8888cc; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin: 14px 0 6px; }
+  .detail-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #1e1e3a; }
+  .detail-label { color: #7777aa; }
+  .detail-value { color: #d0d0f0; font-weight: 600; }
+  .dep-list { max-height: 200px; overflow-y: auto; }
+  .dep-item { padding: 2px 0; color: #9999cc; cursor: pointer; }
+  .dep-item:hover { color: #ccccff; }
+  .health-healthy { color: #44cc77; }
+  .health-warning { color: #ccaa44; }
+  .health-critical { color: #cc4444; }
+
+  /* Search */
+  #search-box { position: absolute; top: 12px; left: 12px; z-index: 10; }
+  #search-input { background: #1a1a30; border: 1px solid #333366; color: #c8c8e0;
+    padding: 8px 14px; border-radius: 8px; width: 280px; font-size: 13px; outline: none; }
+  #search-input:focus { border-color: #6666cc; box-shadow: 0 0 10px rgba(100,100,200,0.3); }
+  #search-input::placeholder { color: #555577; }
+
+  /* Stats bar */
+  #stats { position: absolute; bottom: 12px; left: 12px; z-index: 10;
+    background: rgba(22,22,42,0.9); padding: 8px 14px; border-radius: 8px;
+    font-size: 12px; color: #7777aa; display: flex; gap: 16px; }
+  .stat-value { color: #a0a0ff; font-weight: 700; }
+
+  /* Legend */
+  #legend { position: absolute; top: 12px; right: 360px; z-index: 10;
+    background: rgba(22,22,42,0.9); padding: 10px 14px; border-radius: 8px; font-size: 11px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* Tooltip */
+  .tooltip { position: absolute; background: #1e1e3a; border: 1px solid #3a3a6a;
+    padding: 8px 12px; border-radius: 6px; font-size: 12px; pointer-events: none;
+    z-index: 100; max-width: 300px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="graph-area">
+    <div id="search-box">
+      <input id="search-input" type="text" placeholder="Search modules... (Esc to clear)">
+    </div>
+    <div id="stats">
+      <span>Modules: <span class="stat-value">43</span></span>
+      <span>Dependencies: <span class="stat-value">46</span></span>
+      <span>Cycles: <span class="stat-value">0</span></span>
+    </div>
+    <svg id="graph-svg"></svg>
+  </div>
+  <div id="sidebar">
+    <h2>🦅 Hawkeye</h2>
+    <p style="color: #555577; font-size: 12px; margin-bottom: 12px;">Hawkeye</p>
+    <div id="module-details">
+      <p style="color: #555577;">Click a node to inspect it.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const graphData = {"nodes": [{"id": "Hawkeye.main", "label": "Hawkeye.main", "group": "main", "package": "Hawkeye", "rel_path": "main.py", "loc": 18, "depth": 1, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.examples.basic_analysis", "label": "examples.basic_analysis", "group": "examples", "package": "Hawkeye.examples", "rel_path": "examples/basic_analysis.py", "loc": 48, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.examples.benchmark_tokens", "label": "examples.benchmark_tokens", "group": "examples", "package": "Hawkeye.examples", "rel_path": "examples/benchmark_tokens.py", "loc": 134, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.examples.ci_check", "label": "examples.ci_check", "group": "examples", "package": "Hawkeye.examples", "rel_path": "examples/ci_check.py", "loc": 63, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.examples.symbol_impact", "label": "examples.symbol_impact", "group": "examples", "package": "Hawkeye.examples", "rel_path": "examples/symbol_impact.py", "loc": 69, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.examples.sample_project", "label": "examples.sample_project", "group": "examples", "package": "Hawkeye.examples", "rel_path": "examples/sample_project/__init__.py", "loc": 0, "depth": 2, "is_package": true, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.examples.sample_project.api", "label": "sample_project.api", "group": "examples", "package": "Hawkeye.examples.sample_project", "rel_path": "examples/sample_project/api.py", "loc": 15, "depth": 3, "is_package": false, "ca": 0, "ce": 2, "instability": 1.0, "health": "healthy", "radius": 10}, {"id": "Hawkeye.examples.sample_project.models", "label": "sample_project.models", "group": "examples", "package": "Hawkeye.examples.sample_project", "rel_path": "examples/sample_project/models.py", "loc": 20, "depth": 3, "is_package": false, "ca": 2, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 10}, {"id": "Hawkeye.examples.sample_project.services", "label": "sample_project.services", "group": "examples", "package": "Hawkeye.examples.sample_project", "rel_path": "examples/sample_project/services.py", "loc": 30, "depth": 3, "is_package": false, "ca": 1, "ce": 1, "instability": 0.5, "health": "healthy", "radius": 10}, {"id": "Hawkeye.examples.sample_project.utils", "label": "sample_project.utils", "group": "examples", "package": "Hawkeye.examples.sample_project", "rel_path": "examples/sample_project/utils.py", "loc": 5, "depth": 3, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.src.hawkeye", "label": "src.hawkeye", "group": "src", "package": "Hawkeye.src", "rel_path": "src/hawkeye/__init__.py", "loc": 7, "depth": 2, "is_package": true, "ca": 1, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 8}, {"id": "Hawkeye.src.hawkeye.__main__", "label": "hawkeye.__main__", "group": "src", "package": "Hawkeye.src.hawkeye", "rel_path": "src/hawkeye/__main__.py", "loc": 5, "depth": 3, "is_package": false, "ca": 0, "ce": 1, "instability": 1.0, "health": "healthy", "radius": 8}, {"id": "Hawkeye.src.hawkeye.cli", "label": "hawkeye.cli", "group": "src", "package": "Hawkeye.src.hawkeye", "rel_path": "src/hawkeye/cli.py", "loc": 244, "depth": 3, "is_package": false, "ca": 1, "ce": 9, "instability": 0.9, "health": "critical", "radius": 26}, {"id": "Hawkeye.src.hawkeye.config", "label": "hawkeye.config", "group": "src", "package": "Hawkeye.src.hawkeye", "rel_path": "src/hawkeye/config.py", "loc": 102, "depth": 3, "is_package": false, "ca": 4, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 14}, {"id": "Hawkeye.src.hawkeye.engine", "label": "hawkeye.engine", "group": "src", "package": "Hawkeye.src.hawkeye", "rel_path": "src/hawkeye/engine.py", "loc": 397, "depth": 3, "is_package": false, "ca": 2, "ce": 3, "instability": 0.6, "health": "critical", "radius": 16}, {"id": "Hawkeye.src.hawkeye.core", "label": "hawkeye.core", "group": "src", "package": "Hawkeye.src.hawkeye", "rel_path": "src/hawkeye/core/__init__.py", "loc": 29, "depth": 3, "is_package": true, "ca": 2, "ce": 8, "instability": 0.8, "health": "warning", "radius": 26}, {"id": "Hawkeye.src.hawkeye.core.analyzer", "label": "core.analyzer", "group": "src", "package": "Hawkeye.src.hawkeye.core", "rel_path": "src/hawkeye/core/analyzer.py", "loc": 328, "depth": 4, "is_package": false, "ca": 4, "ce": 1, "instability": 0.2, "health": "critical", "radius": 16}, {"id": "Hawkeye.src.hawkeye.core.cycles", "label": "core.cycles", "group": "src", "package": "Hawkeye.src.hawkeye.core", "rel_path": "src/hawkeye/core/cycles.py", "loc": 165, "depth": 4, "is_package": false, "ca": 3, "ce": 1, "instability": 0.25, "health": "critical", "radius": 14}, {"id": "Hawkeye.src.hawkeye.core.graph", "label": "core.graph", "group": "src", "package": "Hawkeye.src.hawkeye.core", "rel_path": "src/hawkeye/core/graph.py", "loc": 251, "depth": 4, "is_package": false, "ca": 8, "ce": 2, "instability": 0.2, "health": "critical", "radius": 26}, {"id": "Hawkeye.src.hawkeye.core.insights", "label": "core.insights", "group": "src", "package": "Hawkeye.src.hawkeye.core", "rel_path": "src/hawkeye/core/insights.py", "loc": 312, "depth": 4, "is_package": false, "ca": 1, "ce": 0, "instability": 0.0, "health": "warning", "radius": 8}, {"id": "Hawkeye.src.hawkeye.core.metrics", "label": "core.metrics", "group": "src", "package": "Hawkeye.src.hawkeye.core", "rel_path": "src/hawkeye/core/metrics.py", "loc": 144, "depth": 4, "is_package": false, "ca": 5, "ce": 1, "instability": 0.167, "health": "warning", "radius": 18}, {"id": "Hawkeye.src.hawkeye.core.rules", "label": "core.rules", "group": "src", "package": "Hawkeye.src.hawkeye.core", "rel_path": "src/hawkeye/core/rules.py", "loc": 147, "depth": 4, "is_package": false, "ca": 1, "ce": 2, "instability": 0.667, "health": "critical", "radius": 12}, {"id": "Hawkeye.src.hawkeye.core.scanner", "label": "core.scanner", "group": "src", "package": "Hawkeye.src.hawkeye.core", "rel_path": "src/hawkeye/core/scanner.py", "loc": 105, "depth": 4, "is_package": false, "ca": 3, "ce": 1, "instability": 0.25, "health": "warning", "radius": 14}, {"id": "Hawkeye.src.hawkeye.core.symbols", "label": "core.symbols", "group": "src", "package": "Hawkeye.src.hawkeye.core", "rel_path": "src/hawkeye/core/symbols.py", "loc": 277, "depth": 4, "is_package": false, "ca": 1, "ce": 1, "instability": 0.5, "health": "critical", "radius": 10}, {"id": "Hawkeye.src.hawkeye.server", "label": "hawkeye.server", "group": "src", "package": "Hawkeye.src.hawkeye", "rel_path": "src/hawkeye/server/__init__.py", "loc": 3, "depth": 3, "is_package": true, "ca": 1, "ce": 1, "instability": 0.5, "health": "healthy", "radius": 10}, {"id": "Hawkeye.src.hawkeye.server.mcp", "label": "server.mcp", "group": "src", "package": "Hawkeye.src.hawkeye.server", "rel_path": "src/hawkeye/server/mcp.py", "loc": 369, "depth": 4, "is_package": false, "ca": 1, "ce": 2, "instability": 0.667, "health": "warning", "radius": 12}, {"id": "Hawkeye.src.hawkeye.visualizer", "label": "hawkeye.visualizer", "group": "src", "package": "Hawkeye.src.hawkeye", "rel_path": "src/hawkeye/visualizer/__init__.py", "loc": 1, "depth": 3, "is_package": true, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.src.hawkeye.visualizer.dot_renderer", "label": "visualizer.dot_renderer", "group": "src", "package": "Hawkeye.src.hawkeye.visualizer", "rel_path": "src/hawkeye/visualizer/dot_renderer.py", "loc": 109, "depth": 4, "is_package": false, "ca": 1, "ce": 2, "instability": 0.667, "health": "warning", "radius": 12}, {"id": "Hawkeye.src.hawkeye.visualizer.html_renderer", "label": "visualizer.html_renderer", "group": "src", "package": "Hawkeye.src.hawkeye.visualizer", "rel_path": "src/hawkeye/visualizer/html_renderer.py", "loc": 317, "depth": 4, "is_package": false, "ca": 1, "ce": 2, "instability": 0.667, "health": "healthy", "radius": 12}, {"id": "Hawkeye.src.hawkeye.visualizer.json_renderer", "label": "visualizer.json_renderer", "group": "src", "package": "Hawkeye.src.hawkeye.visualizer", "rel_path": "src/hawkeye/visualizer/json_renderer.py", "loc": 56, "depth": 4, "is_package": false, "ca": 2, "ce": 3, "instability": 0.6, "health": "healthy", "radius": 16}, {"id": "Hawkeye.src.hawkeye.visualizer.text_renderer", "label": "visualizer.text_renderer", "group": "src", "package": "Hawkeye.src.hawkeye.visualizer", "rel_path": "src/hawkeye/visualizer/text_renderer.py", "loc": 149, "depth": 4, "is_package": false, "ca": 1, "ce": 3, "instability": 0.75, "health": "warning", "radius": 14}, {"id": "Hawkeye.tests", "label": "Hawkeye.tests", "group": "tests", "package": "Hawkeye", "rel_path": "tests/__init__.py", "loc": 0, "depth": 1, "is_package": true, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.conftest", "label": "tests.conftest", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/conftest.py", "loc": 197, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.test_analyzer", "label": "tests.test_analyzer", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_analyzer.py", "loc": 193, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.test_config", "label": "tests.test_config", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_config.py", "loc": 101, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.test_cycles", "label": "tests.test_cycles", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_cycles.py", "loc": 106, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.test_engine", "label": "tests.test_engine", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_engine.py", "loc": 198, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "critical", "radius": 6}, {"id": "Hawkeye.tests.test_graph", "label": "tests.test_graph", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_graph.py", "loc": 124, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.test_insights", "label": "tests.test_insights", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_insights.py", "loc": 241, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "critical", "radius": 6}, {"id": "Hawkeye.tests.test_metrics", "label": "tests.test_metrics", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_metrics.py", "loc": 98, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.test_rules", "label": "tests.test_rules", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_rules.py", "loc": 148, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.test_scanner", "label": "tests.test_scanner", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_scanner.py", "loc": 99, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}, {"id": "Hawkeye.tests.test_symbols", "label": "tests.test_symbols", "group": "tests", "package": "Hawkeye.tests", "rel_path": "tests/test_symbols.py", "loc": 278, "depth": 2, "is_package": false, "ca": 0, "ce": 0, "instability": 0.0, "health": "healthy", "radius": 6}], "links": [{"source": "Hawkeye.examples.sample_project.api", "target": "Hawkeye.examples.sample_project.services", "count": 3, "is_cycle": false}, {"source": "Hawkeye.examples.sample_project.api", "target": "Hawkeye.examples.sample_project.models", "count": 2, "is_cycle": false}, {"source": "Hawkeye.examples.sample_project.services", "target": "Hawkeye.examples.sample_project.models", "count": 4, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.__main__", "target": "Hawkeye.src.hawkeye.cli", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye.config", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye.engine", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye.visualizer.html_renderer", "count": 3, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye.core", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye.server", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye.visualizer.text_renderer", "count": 3, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye.visualizer.json_renderer", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.cli", "target": "Hawkeye.src.hawkeye.visualizer.dot_renderer", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.engine", "target": "Hawkeye.src.hawkeye.config", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.engine", "target": "Hawkeye.src.hawkeye.core", "count": 22, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.engine", "target": "Hawkeye.src.hawkeye.core.analyzer", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core", "target": "Hawkeye.src.hawkeye.core.analyzer", "count": 5, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core", "target": "Hawkeye.src.hawkeye.core.cycles", "count": 3, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core", "target": "Hawkeye.src.hawkeye.core.graph", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core", "target": "Hawkeye.src.hawkeye.core.insights", "count": 6, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core", "target": "Hawkeye.src.hawkeye.core.metrics", "count": 6, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core", "target": "Hawkeye.src.hawkeye.core.rules", "count": 3, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core", "target": "Hawkeye.src.hawkeye.core.scanner", "count": 3, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core", "target": "Hawkeye.src.hawkeye.core.symbols", "count": 5, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.analyzer", "target": "Hawkeye.src.hawkeye.core.scanner", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.cycles", "target": "Hawkeye.src.hawkeye.core.graph", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.graph", "target": "Hawkeye.src.hawkeye.core.analyzer", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.graph", "target": "Hawkeye.src.hawkeye.core.scanner", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.metrics", "target": "Hawkeye.src.hawkeye.core.graph", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.rules", "target": "Hawkeye.src.hawkeye.config", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.rules", "target": "Hawkeye.src.hawkeye.core.graph", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.scanner", "target": "Hawkeye.src.hawkeye.config", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.core.symbols", "target": "Hawkeye.src.hawkeye.core.analyzer", "count": 5, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.server", "target": "Hawkeye.src.hawkeye.server.mcp", "count": 3, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.server.mcp", "target": "Hawkeye.src.hawkeye.engine", "count": 4, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.server.mcp", "target": "Hawkeye.src.hawkeye.visualizer.json_renderer", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.dot_renderer", "target": "Hawkeye.src.hawkeye.core.graph", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.dot_renderer", "target": "Hawkeye.src.hawkeye.core.metrics", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.html_renderer", "target": "Hawkeye.src.hawkeye.core.graph", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.html_renderer", "target": "Hawkeye.src.hawkeye.core.metrics", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.json_renderer", "target": "Hawkeye.src.hawkeye.core.cycles", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.json_renderer", "target": "Hawkeye.src.hawkeye.core.graph", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.json_renderer", "target": "Hawkeye.src.hawkeye.core.metrics", "count": 3, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.text_renderer", "target": "Hawkeye.src.hawkeye.core.cycles", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.text_renderer", "target": "Hawkeye.src.hawkeye.core.graph", "count": 2, "is_cycle": false}, {"source": "Hawkeye.src.hawkeye.visualizer.text_renderer", "target": "Hawkeye.src.hawkeye.core.metrics", "count": 4, "is_cycle": false}]};
+
+// ── Color scheme ──
+const groups = [...new Set(graphData.nodes.map(n => n.group))].sort();
+const colorScale = d3.scaleOrdinal()
+  .domain(groups)
+  .range(groups.map((_, i) => d3.hsl(i * (360 / groups.length), 0.6, 0.55).formatHex()));
+
+// ── SVG setup ──
+const svg = d3.select("#graph-svg");
+const width = document.getElementById("graph-area").clientWidth;
+const height = document.getElementById("graph-area").clientHeight;
+
+const g = svg.append("g");
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.1, 6])
+  .on("zoom", (event) => g.attr("transform", event.transform));
+svg.call(zoom);
+
+// Arrow markers
+svg.append("defs").selectAll("marker")
+  .data(["normal", "cycle"])
+  .join("marker")
+    .attr("id", d => `arrow-${d}`)
+    .attr("viewBox", "0 -5 10 10")
+    .attr("refX", 20)
+    .attr("refY", 0)
+    .attr("markerWidth", 6)
+    .attr("markerHeight", 6)
+    .attr("orient", "auto")
+  .append("path")
+    .attr("d", "M0,-5L10,0L0,5")
+    .attr("fill", d => d === "cycle" ? "#ff4444" : "#444466");
+
+// ── Simulation ──
+const simulation = d3.forceSimulation(graphData.nodes)
+  .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(120))
+  .force("charge", d3.forceManyBody().strength(-300))
+  .force("center", d3.forceCenter(width / 2, height / 2))
+  .force("collision", d3.forceCollide().radius(d => (d.radius || 8) + 4));
+
+// ── Links ──
+const link = g.append("g")
+  .selectAll("line")
+  .data(graphData.links)
+  .join("line")
+    .attr("stroke", d => d.is_cycle ? "#ff4444" : "#333355")
+    .attr("stroke-width", d => d.is_cycle ? 2 : 1)
+    .attr("stroke-opacity", d => d.is_cycle ? 0.8 : 0.4)
+    .attr("marker-end", d => `url(#arrow-${d.is_cycle ? "cycle" : "normal"})`);
+
+// ── Nodes ──
+const node = g.append("g")
+  .selectAll("circle")
+  .data(graphData.nodes)
+  .join("circle")
+    .attr("r", d => d.radius || 8)
+    .attr("fill", d => colorScale(d.group))
+    .attr("stroke", d => {
+      if (d.health === "critical") return "#ff4444";
+      if (d.health === "warning") return "#ccaa44";
+      return "#222244";
+    })
+    .attr("stroke-width", d => (d.health === "critical" || d.health === "warning") ? 2.5 : 1)
+    .style("cursor", "pointer")
+    .call(d3.drag()
+      .on("start", dragStarted)
+      .on("drag", dragged)
+      .on("end", dragEnded));
+
+// ── Labels ──
+const labels = g.append("g")
+  .selectAll("text")
+  .data(graphData.nodes)
+  .join("text")
+    .text(d => d.label.split(".").pop())
+    .attr("font-size", 9)
+    .attr("fill", "#8888aa")
+    .attr("text-anchor", "middle")
+    .attr("dy", d => -(d.radius || 8) - 4)
+    .style("pointer-events", "none");
+
+// ── Tooltip ──
+const tooltip = d3.select("body").append("div").attr("class", "tooltip").style("display", "none");
+
+node.on("mouseover", (event, d) => {
+  tooltip.style("display", "block")
+    .html(`<strong>${d.id}</strong><br>${d.rel_path}<br>LOC: ${d.loc}`)
+    .style("left", (event.pageX + 12) + "px")
+    .style("top", (event.pageY - 10) + "px");
+})
+.on("mousemove", (event) => {
+  tooltip.style("left", (event.pageX + 12) + "px").style("top", (event.pageY - 10) + "px");
+})
+.on("mouseout", () => tooltip.style("display", "none"));
+
+// ── Click to highlight neighborhood ──
+let selectedNode = null;
+
+node.on("click", (event, d) => {
+  event.stopPropagation();
+  selectedNode = d;
+  highlightNeighborhood(d);
+  showDetails(d);
+});
+
+svg.on("click", () => {
+  selectedNode = null;
+  resetHighlight();
+  document.getElementById("module-details").innerHTML = '<p style="color: #555577;">Click a node to inspect it.</p>';
+});
+
+function highlightNeighborhood(d) {
+  const neighbors = new Set([d.id]);
+  graphData.links.forEach(l => {
+    const s = typeof l.source === "object" ? l.source.id : l.source;
+    const t = typeof l.target === "object" ? l.target.id : l.target;
+    if (s === d.id) neighbors.add(t);
+    if (t === d.id) neighbors.add(s);
+  });
+
+  node.attr("opacity", n => neighbors.has(n.id) ? 1 : 0.1);
+  labels.attr("opacity", n => neighbors.has(n.id) ? 1 : 0.05);
+  link.attr("opacity", l => {
+    const s = typeof l.source === "object" ? l.source.id : l.source;
+    const t = typeof l.target === "object" ? l.target.id : l.target;
+    return (s === d.id || t === d.id) ? 0.8 : 0.03;
+  });
+}
+
+function resetHighlight() {
+  node.attr("opacity", 1);
+  labels.attr("opacity", 1);
+  link.attr("opacity", l => l.is_cycle ? 0.8 : 0.4);
+}
+
+function showDetails(d) {
+  const deps = graphData.links.filter(l => (typeof l.source === "object" ? l.source.id : l.source) === d.id);
+  const rdeps = graphData.links.filter(l => (typeof l.target === "object" ? l.target.id : l.target) === d.id);
+  const healthClass = d.health ? `health-${d.health}` : "";
+
+  let html = `<h2>${d.label}</h2><p style="color:#555577;font-size:11px;margin-bottom:10px;">${d.id}</p>`;
+  html += `<h3>Details</h3>`;
+  html += detailRow("File", d.rel_path);
+  html += detailRow("LOC", d.loc);
+  html += detailRow("Package", d.package || "—");
+
+  if (d.ca !== undefined) {
+    html += `<h3>Metrics</h3>`;
+    html += detailRow("Afferent (Ca)", d.ca);
+    html += detailRow("Efferent (Ce)", d.ce);
+    html += detailRow("Instability", d.instability?.toFixed(3));
+    html += detailRow("Health", `<span class="${healthClass}">${d.health}</span>`);
+  }
+
+  html += `<h3>Dependencies (${deps.length})</h3><div class="dep-list">`;
+  deps.forEach(l => {
+    const t = typeof l.target === "object" ? l.target.id : l.target;
+    const cycleTag = l.is_cycle ? ' <span style="color:#ff4444;">🔄</span>' : "";
+    html += `<div class="dep-item" onclick="focusNode('${t}')">→ ${t}${cycleTag}</div>`;
+  });
+  html += `</div>`;
+
+  html += `<h3>Dependents (${rdeps.length})</h3><div class="dep-list">`;
+  rdeps.forEach(l => {
+    const s = typeof l.source === "object" ? l.source.id : l.source;
+    html += `<div class="dep-item" onclick="focusNode('${s}')">← ${s}</div>`;
+  });
+  html += `</div>`;
+
+  document.getElementById("module-details").innerHTML = html;
+}
+
+function detailRow(label, value) {
+  return `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`;
+}
+
+function focusNode(id) {
+  const d = graphData.nodes.find(n => n.id === id);
+  if (d) { highlightNeighborhood(d); showDetails(d); }
+}
+
+// ── Search ──
+const searchInput = document.getElementById("search-input");
+searchInput.addEventListener("input", () => {
+  const query = searchInput.value.toLowerCase();
+  if (!query) { resetHighlight(); return; }
+
+  const matches = new Set();
+  graphData.nodes.forEach(n => { if (n.id.toLowerCase().includes(query)) matches.add(n.id); });
+
+  node.attr("opacity", n => matches.has(n.id) ? 1 : 0.1);
+  labels.attr("opacity", n => matches.has(n.id) ? 1 : 0.05);
+  link.attr("opacity", 0.05);
+});
+
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { searchInput.value = ""; resetHighlight(); }
+});
+
+// ── Simulation tick ──
+simulation.on("tick", () => {
+  link
+    .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+    .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+  node.attr("cx", d => d.x).attr("cy", d => d.y);
+  labels.attr("x", d => d.x).attr("y", d => d.y);
+});
+
+// ── Drag handlers ──
+function dragStarted(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+function dragEnded(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+</script>
+</body>
+</html>
