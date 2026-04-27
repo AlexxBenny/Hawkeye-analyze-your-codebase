@@ -16,9 +16,11 @@ class Cycle:
     """A single import cycle."""
     path: list[str]    # Module names forming the cycle (first == last)
     length: int = 0
+    severity: str = "low"          # 'low', 'medium', 'high', 'critical'
+    break_suggestion: str = ""     # Which edge to cut
 
     def __post_init__(self) -> None:
-        self.length = len(self.path) - 1  # Don't count the repeated node
+        self.length = len(self.path) - 1
 
     def __str__(self) -> str:
         return " → ".join(self.path)
@@ -120,11 +122,61 @@ def _extract_cycles_from_scc(
     return cycles
 
 
+def _score_severity(
+    cycle: Cycle,
+    graph: "DependencyGraph",
+) -> None:
+    """Score cycle severity based on blast radius of its members."""
+    members = set(cycle.path[:-1])
+    total_dependents = 0
+    for m in members:
+        total_dependents += len(graph.reverse_adj.get(m, set()) - members)
+
+    if total_dependents > 10 or cycle.length > 5:
+        cycle.severity = "critical"
+    elif total_dependents > 5 or cycle.length > 3:
+        cycle.severity = "high"
+    elif total_dependents > 2:
+        cycle.severity = "medium"
+    else:
+        cycle.severity = "low"
+
+
+def _suggest_break(
+    cycle: Cycle,
+    graph: "DependencyGraph",
+) -> None:
+    """Suggest which edge to cut to break the cycle.
+
+    Heuristic: cut the edge where the SOURCE has the fewest dependents
+    on the TARGET (lowest coupling cost).
+    """
+    best_edge = ""
+    best_score = float("inf")
+
+    for i in range(len(cycle.path) - 1):
+        src, tgt = cycle.path[i], cycle.path[i + 1]
+        edge = graph.edges.get((src, tgt))
+        # Score = import count (fewer imports = easier to break)
+        score = edge.import_count if edge else 1
+        # Prefer cutting edges where the target has high Ca (many alternatives)
+        tgt_ca = len(graph.reverse_adj.get(tgt, set()))
+        if tgt_ca > 1:
+            score *= 0.5  # Target has other consumers, safer to cut
+
+        if score < best_score:
+            best_score = score
+            best_edge = f"{src} → {tgt}"
+
+    cycle.break_suggestion = best_edge
+
+
 def detect_cycles(graph: "DependencyGraph") -> CycleReport:
-    """Detect all import cycles in the dependency graph.
+    """Detect all import cycles with severity ranking and break suggestions.
 
     Uses Tarjan's SCC algorithm to find strongly connected components,
-    then extracts individual cycles from each SCC.
+    then extracts individual cycles, scores their severity, and suggests
+    which edge to cut to break each cycle.
     """
     sccs = _find_sccs(graph)
 
@@ -133,10 +185,13 @@ def detect_cycles(graph: "DependencyGraph") -> CycleReport:
 
     for scc in sccs:
         cycles = _extract_cycles_from_scc(scc, graph)
+        for cycle in cycles:
+            _score_severity(cycle, graph)
+            _suggest_break(cycle, graph)
         all_cycles.extend(cycles)
 
         for cycle in cycles:
-            for node in cycle.path[:-1]:  # Exclude repeated last node
+            for node in cycle.path[:-1]:
                 participation[node] = participation.get(node, 0) + 1
 
     # Mark cycle edges on the graph
@@ -146,8 +201,9 @@ def detect_cycles(graph: "DependencyGraph") -> CycleReport:
             if edge_key in graph.edges:
                 graph.edges[edge_key].is_cycle_member = True
 
-    # Sort by length (shortest cycles first)
-    all_cycles.sort(key=lambda c: c.length)
+    # Sort by severity (critical first), then length
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    all_cycles.sort(key=lambda c: (severity_order.get(c.severity, 4), c.length))
 
     return CycleReport(
         cycles=all_cycles,

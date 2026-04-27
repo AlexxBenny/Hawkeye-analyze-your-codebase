@@ -18,7 +18,12 @@ from .core import (
     calculate_module_metrics, calculate_project_metrics,
     CycleReport, detect_cycles,
     Violation, check_all_rules,
+    SymbolRegistry, SymbolGraph, SymbolReference,
+    resolve_references,
+    derive_module_insights, insights_compact, insights_full,
+    classify_risk,
 )
+from .core.analyzer import SymbolTable
 
 
 def _hash_file(path: str) -> str:
@@ -46,12 +51,16 @@ class HawkeyeEngine:
         self._project_metrics: ProjectMetrics | None = None
         self._cycle_report: CycleReport | None = None
         self._violations: list[Violation] | None = None
+        self._symbol_registry: SymbolRegistry | None = None
+        self._symbol_graph: SymbolGraph | None = None
+        self._symbol_refs: list[SymbolReference] | None = None
         self._project_name: str = ""
         self._project_root: str = ""
         # Reverse lookups: file path → module name
         self._path_index: dict[str, str] = {}
         # File hashes for incremental analysis
         self._file_hashes: dict[str, str] = {}
+        self._symbol_tables: dict[str, SymbolTable] = {}
 
     # ── Analysis Pipeline ──────────────────────────────────────
 
@@ -85,25 +94,38 @@ class HawkeyeEngine:
             for name, info in self._file_index.items()
         }
 
-        # 4. Analyze imports
-        self._analysis = analyze_project(self._file_index, self._project_name)
+        # 4. Analyze imports + symbols in single AST pass
+        self._analysis, self._symbol_tables = analyze_project(
+            self._file_index, self._project_name
+        )
 
-        # 5. Build graph
+        # 5. Build module-level graph
         self._graph = DependencyGraph.build(
             self._file_index, self._analysis, self._project_name
         )
 
-        # 6. Detect cycles (also marks edges)
+        # 6. Build symbol registry + resolve cross-file references
+        self._symbol_registry = SymbolRegistry.build(self._symbol_tables)
+        self._symbol_refs = resolve_references(
+            self._analysis, self._symbol_registry
+        )
+        self._symbol_graph = SymbolGraph.build(
+            self._symbol_registry, self._symbol_refs
+        )
+
+        # 7. Detect cycles (also marks edges)
         self._cycle_report = detect_cycles(self._graph)
 
-        # 7. Compute metrics
-        self._module_metrics = calculate_module_metrics(self._graph)
+        # 8. Compute metrics (with symbol data for complexity)
+        self._module_metrics = calculate_module_metrics(
+            self._graph, self._symbol_tables
+        )
         self._project_metrics = calculate_project_metrics(
             self._graph, self._module_metrics,
             has_cycles=self._cycle_report.has_cycles,
         )
 
-        # 8. Check architecture rules
+        # 9. Check architecture rules
         self._violations = check_all_rules(self._graph, self.config.rules)
 
         return self._graph
@@ -168,6 +190,24 @@ class HawkeyeEngine:
         if self._violations is None:
             raise RuntimeError("Call analyze() first.")
         return self._violations
+
+    @property
+    def symbol_registry(self) -> SymbolRegistry:
+        if self._symbol_registry is None:
+            raise RuntimeError("Call analyze() first.")
+        return self._symbol_registry
+
+    @property
+    def symbol_graph(self) -> SymbolGraph:
+        if self._symbol_graph is None:
+            raise RuntimeError("Call analyze() first.")
+        return self._symbol_graph
+
+    @property
+    def symbol_refs(self) -> list[SymbolReference]:
+        if self._symbol_refs is None:
+            raise RuntimeError("Call analyze() first.")
+        return self._symbol_refs
 
     @property
     def project_name(self) -> str:
@@ -289,13 +329,69 @@ class HawkeyeEngine:
                 "ca": m.ca, "ce": m.ce,
                 "instability": m.instability,
                 "health": m.health,
+                "cyclomatic_complexity": m.cyclomatic_complexity,
+                "cognitive_complexity": m.cognitive_complexity,
+                "classes": m.class_count,
+                "functions": m.function_count,
+                "methods": m.method_count,
             }
 
         if cycles:
-            result["cycles"] = cycles
+            result["cycles"] = [
+                {"path": c, "severity": cyc.severity, "break_at": cyc.break_suggestion}
+                for c in cycles
+                for cyc in self.cycle_report.cycles
+                if cyc.path == c
+            ] if not compact else cycles
+
+        # Symbol details (non-compact mode)
+        st = self._symbol_tables.get(module)
+        if st and not compact:
+            result["symbols"] = {
+                "classes": [{"name": s.name, "line": s.line, "methods": s.method_count, "complexity": s.complexity} for s in st.classes],
+                "functions": [{"name": s.name, "line": s.line, "complexity": s.complexity} for s in st.functions],
+            }
 
         if related:
             result["related_files"] = related
+
+        # ── Layer 2: Deterministic insights ────────────────
+        transitive = self.graph.get_transitive_dependents(module)
+        cycle_modules = [
+            c for c in self.cycle_report.cycles
+            if module in c.path[:-1]
+        ]
+        insights = derive_module_insights(
+            instability=m.instability if m else 0.0,
+            ca=m.ca if m else 0,
+            ce=m.ce if m else 0,
+            cyclomatic=m.cyclomatic_complexity if m else 1,
+            cognitive=m.cognitive_complexity if m else 0,
+            loc=node.loc,
+            direct_dependents=len(dependents),
+            transitive_dependents=len(transitive),
+            cycle_count=len(cycle_modules),
+            max_cycle_size=max((len(c.path) - 1 for c in cycle_modules), default=0),
+        )
+        if insights:
+            result["insights"] = (
+                insights_compact(insights) if compact
+                else insights_full(insights)
+            )
+
+        # Risk profile: single self-describing label (1 token)
+        risk = classify_risk(
+            instability=m.instability if m else 0.0,
+            ca=m.ca if m else 0,
+            ce=m.ce if m else 0,
+            cyclomatic=m.cyclomatic_complexity if m else 1,
+            cognitive=m.cognitive_complexity if m else 0,
+            direct_dependents=len(dependents),
+            transitive_dependents=len(transitive),
+            cycle_count=len(cycle_modules),
+        )
+        if risk:
+            result["risk"] = risk
 
         return result
 

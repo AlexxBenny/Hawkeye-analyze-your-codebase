@@ -1,6 +1,6 @@
 """CLI entry point for Hawkeye.
 
-Commands: analyze, context, show, check, metrics, serve.
+Commands: analyze, context, impact, show, check, metrics, serve.
 """
 
 import argparse
@@ -50,6 +50,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("project", help="Path to the Python project root")
     p.add_argument("--sort", choices=["instability", "ca", "ce", "loc"], default="instability")
     p.add_argument("--limit", type=int, default=0, help="Max modules (0=all)")
+
+    # ── impact ──
+    p = sub.add_parser("impact", help="Analyze symbol-level impact of changing a file")
+    p.add_argument("project", help="Path to the Python project root")
+    p.add_argument("file", help="File path or module name to analyze impact for")
+    p.add_argument("--symbol", "-s", help="Specific symbol name (e.g., 'Engine')")
+    p.add_argument("--hotspots", action="store_true", help="Show most-imported symbols")
+    p.add_argument("--unused", action="store_true", help="Show unused symbols")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
 
     # ── serve ──
     p = sub.add_parser("serve", help="Start the MCP server for AI editors")
@@ -190,6 +199,86 @@ def _run_serve(args) -> int:
     return 0
 
 
+def _run_impact(args) -> int:
+    import json as json_mod
+    engine = _make_engine(args, use_config=True)
+    sg = engine.symbol_graph
+    registry = engine.symbol_registry
+
+    # ── Hotspots mode ──
+    if args.hotspots:
+        hotspots = sg.hotspots(min_usage=2)
+        if args.json:
+            print(json_mod.dumps(
+                [{"symbol": str(sid), "usage_count": c} for sid, c in hotspots],
+                indent=2,
+            ))
+        else:
+            print(f"\n🔥 Symbol Hotspots (imported by ≥2 modules):\n")
+            if not hotspots:
+                print("  No hotspots found.")
+            for sid, count in hotspots:
+                print(f"  {sid.name:30s}  ({sid.module})  → {count} importers")
+        return 0
+
+    # ── Unused mode ──
+    if args.unused:
+        unused = sg.unused_symbols(registry)
+        if args.json:
+            print(json_mod.dumps(
+                [{"symbol": str(sid), "module": sid.module} for sid in unused],
+                indent=2,
+            ))
+        else:
+            print(f"\n💀 Unused Symbols ({len(unused)} found):\n")
+            for sid in unused:
+                print(f"  {sid.name:30s}  ({sid.module})")
+        return 0
+
+    # ── Symbol impact mode ──
+    module = engine.resolve(args.file)
+    if module is None:
+        print(f"Not found: '{args.file}'")
+        return 1
+
+    symbols = registry.get_module_symbols(module)
+    if not symbols:
+        print(f"No symbols defined in {module}")
+        return 0
+
+    if args.symbol:
+        # Impact for a specific symbol
+        matches = [s for s in symbols if s.id.name == args.symbol]
+        if not matches:
+            print(f"Symbol '{args.symbol}' not found in {module}")
+            print(f"Available: {', '.join(s.id.name for s in symbols)}")
+            return 1
+        targets = matches
+    else:
+        targets = symbols
+
+    results = []
+    for defn in targets:
+        impact = sg.impact_of(defn.id)
+        impact["kind"] = defn.id.kind
+        results.append(impact)
+
+    if args.json:
+        print(json_mod.dumps(results, indent=2))
+    else:
+        print(f"\n⚡ Impact Analysis: {module}\n")
+        for r in results:
+            sid_str = r["symbol"].split("::")[-1]
+            print(f"  {r.get('kind', '?'):10s} {sid_str}")
+            print(f"    Direct users:      {r['direct_users']} module(s)")
+            print(f"    Transitive users:  {r['transitive_users']} module(s)")
+            if r["direct_modules"]:
+                print(f"    Used by: {', '.join(r['direct_modules'])}")
+            print()
+
+    return 0
+
+
 def main() -> int:
     _ensure_utf8()
     parser = _build_parser()
@@ -202,6 +291,7 @@ def main() -> int:
     handlers = {
         "analyze": _run_analyze,
         "context": _run_context,
+        "impact": _run_impact,
         "show": _run_show,
         "check": _run_check,
         "metrics": _run_metrics,

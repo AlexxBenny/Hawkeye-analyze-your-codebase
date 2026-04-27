@@ -24,6 +24,13 @@ class ModuleMetrics:
     fan_in: int         # Same as Ca (incoming edges)
     fan_out: int        # Same as Ce (outgoing edges)
     health: str         # "healthy", "warning", "critical"
+    # Symbol counts
+    class_count: int = 0
+    function_count: int = 0
+    method_count: int = 0
+    # Complexity
+    cyclomatic_complexity: int = 1
+    cognitive_complexity: int = 0
 
     @property
     def health_emoji(self) -> str:
@@ -45,9 +52,12 @@ class ProjectMetrics:
     has_cycles: bool
 
 
-def _assess_health(ca: int, ce: int, instability: float) -> str:
-    """Determine module health based on coupling metrics."""
+def _assess_health(ca: int, ce: int, instability: float, cc: int = 1, cog: int = 0) -> str:
+    """Determine module health based on coupling and complexity metrics."""
     total_coupling = ca + ce
+    # Critical: extreme complexity
+    if cc > 50 or cog > 60:
+        return "critical"
     if total_coupling == 0:
         return "healthy"
     if instability > 0.8 and ce > 8:
@@ -55,12 +65,21 @@ def _assess_health(ca: int, ce: int, instability: float) -> str:
     if instability > 0.7 and ce > 5:
         return "warning"
     if ca == 0 and ce > 10:
-        return "warning"  # High outgoing, nothing depends on it — might be god module
+        return "warning"  # High outgoing, nothing depends on it
+    # Warning: moderate complexity
+    if cc > 20 or cog > 30:
+        return "warning"
     return "healthy"
 
 
-def calculate_module_metrics(graph: "DependencyGraph") -> dict[str, ModuleMetrics]:
-    """Calculate coupling metrics for every module in the graph."""
+def calculate_module_metrics(
+    graph: "DependencyGraph",
+    symbol_tables: dict | None = None,
+) -> dict[str, ModuleMetrics]:
+    """Calculate coupling and complexity metrics for every module."""
+    if symbol_tables is None:
+        symbol_tables = {}
+
     results: dict[str, ModuleMetrics] = {}
 
     for module_name, node in graph.nodes.items():
@@ -69,13 +88,17 @@ def calculate_module_metrics(graph: "DependencyGraph") -> dict[str, ModuleMetric
         total = ca + ce
         instability = ce / total if total > 0 else 0.0
 
-        # Count total import lines for this module
         import_count = 0
         for (src, _), edge in graph.edges.items():
             if src == module_name:
                 import_count += edge.import_count
 
-        health = _assess_health(ca, ce, instability)
+        # Get symbol data if available
+        st = symbol_tables.get(module_name)
+        cc = st.cyclomatic_complexity if st else 1
+        cog = st.cognitive_complexity if st else 0
+
+        health = _assess_health(ca, ce, instability, cc, cog)
 
         results[module_name] = ModuleMetrics(
             module_name=module_name,
@@ -87,6 +110,11 @@ def calculate_module_metrics(graph: "DependencyGraph") -> dict[str, ModuleMetric
             fan_in=ca,
             fan_out=ce,
             health=health,
+            class_count=st.class_count if st else 0,
+            function_count=st.function_count if st else 0,
+            method_count=st.method_count if st else 0,
+            cyclomatic_complexity=cc,
+            cognitive_complexity=cog,
         )
 
     return results

@@ -1,14 +1,14 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "hawkeye-analyzer"
-version = "2.0.0"
+version = "0.1.0"
 description = "Python dependency graph analyzer, architecture enforcer, and MCP server for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 authors = [{name = "Alex"}]
 keywords = ["dependency", "architecture", "mcp", "static-analysis", "visualization"]
 classifiers = [
@@ -28,15 +28,17 @@ dependencies = []
 [project.optional-dependencies]
 mcp = ["mcp>=1.0"]
 all = ["mcp>=1.0"]
-dev = ["pytest", "mcp>=1.0"]
+dev = ["pytest", "mcp>=1.0", "isort", "black"]
 
 [project.scripts]
 hawkeye = "hawkeye.cli:main"
 hawkeye-mcp = "hawkeye.server.mcp:main"
 
 [project.urls]
-Homepage = "https://github.com/alex/hawkeye"
-Issues = "https://github.com/alex/hawkeye/issues"
+Homepage = "https://github.com/AlexxBenny/Hawkeye-analyze-your-codebase"
+Repository = "https://github.com/AlexxBenny/Hawkeye-analyze-your-codebase"
+Changelog = "https://github.com/AlexxBenny/Hawkeye-analyze-your-codebase/blob/main/CHANGELOG.md"
+Issues = "https://github.com/AlexxBenny/Hawkeye-analyze-your-codebase/issues"
 
 [tool.setuptools.package-dir]
 "" = "src"

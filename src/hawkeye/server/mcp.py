@@ -72,6 +72,8 @@ def create_mcp_server():
             "1. hawkeye_analyze(project_path) — scan the project (do this first)\n"
             "2. hawkeye_file_context(file) — get full context before editing a file\n"
             "3. hawkeye_context(files) — get combined context for multiple files\n"
+            "4. hawkeye_impact(file, symbol) — symbol-level blast radius analysis\n"
+            "5. hawkeye_symbols(file) — list all symbols defined in a module\n"
             "Other tools: hawkeye_find, hawkeye_cycles, hawkeye_metrics, "
             "hawkeye_path, hawkeye_graph"
         ),
@@ -207,7 +209,11 @@ def create_mcp_server():
         return {
             "has_cycles": cr.has_cycles,
             "count": cr.cycle_count,
-            "cycles": [{"path": c.path, "length": c.length} for c in cr.cycles],
+            "cycles": [
+                {"path": c.path, "length": c.length,
+                 "severity": c.severity, "break_at": c.break_suggestion}
+                for c in cr.cycles
+            ],
             "participation": cr.participation,
         }
 
@@ -243,7 +249,9 @@ def create_mcp_server():
             "count": len(items),
             "modules": [
                 {"module": m.module_name, "ca": m.ca, "ce": m.ce,
-                 "instability": m.instability, "loc": m.loc, "health": m.health}
+                 "instability": m.instability, "loc": m.loc, "health": m.health,
+                 "cc": m.cyclomatic_complexity, "cog": m.cognitive_complexity,
+                 "classes": m.class_count, "functions": m.function_count}
                 for m in items
             ],
         }
@@ -295,6 +303,132 @@ def create_mcp_server():
             graph, engine.module_metrics,
             engine.project_metrics, engine.cycle_report,
         ))
+
+    # ── 9. Symbol Impact ──────────────────────────────────────
+
+    @mcp.tool(annotations=_TOOL_ANNOTATIONS_READONLY)
+    def hawkeye_impact(
+        file: str,
+        symbol: str = "",
+        mode: str = "impact",
+        project_path: str = "",
+    ) -> dict[str, object]:
+        """Analyze symbol-level impact of changing a file or specific symbol.
+
+        Three modes:
+        - 'impact' (default): Show which modules break if you change a symbol.
+        - 'hotspots': Show the most-imported symbols (coupling risk).
+        - 'unused': Show symbols that are defined but never imported.
+
+        This is critical context BEFORE refactoring — it tells you the blast
+        radius at the symbol level, not just the module level.
+
+        Args:
+            file: File path or module name to analyze.
+            symbol: Specific symbol name (e.g., 'Engine'). If empty, all symbols.
+            mode: 'impact', 'hotspots', or 'unused'.
+            project_path: Optional project path.
+        """
+        engine = _resolve_engine(project_path)
+        sg = engine.symbol_graph
+        registry = engine.symbol_registry
+
+        if mode == "hotspots":
+            hotspots = sg.hotspots(min_usage=2)
+            return {
+                "mode": "hotspots",
+                "count": len(hotspots),
+                "hotspots": [
+                    {"symbol": str(sid), "module": sid.module,
+                     "name": sid.name, "kind": sid.kind,
+                     "usage_count": count}
+                    for sid, count in hotspots
+                ],
+            }
+
+        if mode == "unused":
+            unused = sg.unused_symbols(registry)
+            return {
+                "mode": "unused",
+                "count": len(unused),
+                "symbols": [
+                    {"symbol": str(sid), "module": sid.module,
+                     "name": sid.name, "kind": sid.kind}
+                    for sid in unused
+                ],
+            }
+
+        # Impact mode
+        module = engine.resolve(file)
+        if module is None:
+            return {"error": f"Module not found: '{file}'",
+                    "suggestions": engine.find_modules(file)[:10]}
+
+        symbols = registry.get_module_symbols(module)
+        if not symbols:
+            return {"module": module, "symbols": [],
+                    "message": "No symbols defined in this module."}
+
+        if symbol:
+            symbols = [s for s in symbols if s.id.name == symbol]
+            if not symbols:
+                available = registry.get_module_symbols(module)
+                return {"error": f"Symbol '{symbol}' not found in {module}",
+                        "available": [s.id.name for s in available]}
+
+        results = []
+        for defn in symbols:
+            impact = sg.impact_of(defn.id)
+            impact["kind"] = defn.id.kind
+            results.append(impact)
+
+        return {
+            "mode": "impact",
+            "module": module,
+            "symbol_count": len(results),
+            "impacts": results,
+        }
+
+    # ── 10. Symbols ───────────────────────────────────────────
+
+    @mcp.tool(annotations=_TOOL_ANNOTATIONS_READONLY)
+    def hawkeye_symbols(
+        file: str,
+        project_path: str = "",
+    ) -> dict[str, object]:
+        """List all symbols (classes, functions) defined in a module.
+
+        Use this to understand what a module exports before analyzing impact.
+
+        Args:
+            file: File path or module name.
+            project_path: Optional project path.
+        """
+        engine = _resolve_engine(project_path)
+        registry = engine.symbol_registry
+        sg = engine.symbol_graph
+
+        module = engine.resolve(file)
+        if module is None:
+            return {"error": f"Module not found: '{file}'",
+                    "suggestions": engine.find_modules(file)[:10]}
+
+        symbols = registry.get_module_symbols(module)
+        return {
+            "module": module,
+            "total_symbols": len(symbols),
+            "symbols": [
+                {
+                    "name": s.id.name,
+                    "kind": s.id.kind,
+                    "line": s.line,
+                    "end_line": s.end_line,
+                    "complexity": s.info.complexity,
+                    "usage_count": sg.usage_count(s.id),
+                }
+                for s in symbols
+            ],
+        }
 
     return mcp
 
