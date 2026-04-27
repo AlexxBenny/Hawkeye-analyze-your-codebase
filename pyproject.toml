@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hawkeye-analyzer"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python dependency graph analyzer, architecture enforcer, and MCP server for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"

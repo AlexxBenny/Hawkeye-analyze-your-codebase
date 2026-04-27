@@ -5,6 +5,14 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-04-28
+
+### Fixed
+- `--output` flag now auto-appends file extension based on `--format` (e.g., `--output graph` + `--format html` → `graph.html`)
+- `hawkeye show --output` also auto-appends `.html` when missing
+- Removed deprecated `License :: OSI Approved :: MIT License` classifier for Python 3.13 compatibility
+- Sorted all imports with isort for consistent code style
+
 ## [0.1.0] - 2026-04-28
 
 ### Added
