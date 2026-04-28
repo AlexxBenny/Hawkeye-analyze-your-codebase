@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 from hawkeye.config import DEFAULT_FRAMEWORK_DECORATORS, HawkeyeConfig
-from hawkeye.core.analyzer import SymbolInfo, SymbolTable, _extract_decorator_names
-
+from hawkeye.core.analyzer import (SymbolInfo, SymbolTable,
+                                   _extract_decorator_names)
 
 # ── Decorator extraction ──────────────────────────────────────
 
@@ -155,7 +155,8 @@ class TestUnusedWithFramework:
     def _build_graph_with_decorated(self):
         """Build a symbol graph where some symbols have framework decorators."""
         from hawkeye.core.analyzer import ImportDetail, ResolvedImport
-        from hawkeye.core.symbols import SymbolGraph, SymbolRegistry, resolve_references
+        from hawkeye.core.symbols import (SymbolGraph, SymbolRegistry,
+                                          resolve_references)
 
         tables = {
             "proj.routes": SymbolTable(
@@ -289,8 +290,8 @@ class TestDecoratorIntegration:
         (tmp_path / "__init__.py").write_text("", encoding="utf-8")
         (tmp_path / "test_mod.py").write_text(code, encoding="utf-8")
 
-        from hawkeye.core.scanner import scan_project
         from hawkeye.core.analyzer import analyze_project
+        from hawkeye.core.scanner import scan_project
 
         index = scan_project(str(tmp_path))
         _, symbols = analyze_project(index, tmp_path.name)
@@ -331,8 +332,8 @@ class TestDecoratorIntegration:
         (tmp_path / "__init__.py").write_text("", encoding="utf-8")
         (tmp_path / "routes.py").write_text(code, encoding="utf-8")
 
-        from hawkeye.core.scanner import scan_project
         from hawkeye.core.analyzer import analyze_project
+        from hawkeye.core.scanner import scan_project
 
         index = scan_project(str(tmp_path))
         _, symbols = analyze_project(index, tmp_path.name)
