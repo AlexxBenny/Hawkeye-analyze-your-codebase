@@ -51,3 +51,5 @@ Desktop.ini
 *.svg
 *.png
 hawkeye-report.*
+hawkeye_graph.html
+hawkeye_assessment.md

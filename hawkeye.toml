@@ -42,3 +42,39 @@ exclude_dirs = [
 
 # [[rules.independence]]
 # groups = [["auth.*", "billing.*", "notifications.*"]]
+
+# [[rules.protected]]
+# modules = ["core.secrets", "core.tokens"]
+# allowed_importers = ["auth.*"]
+
+# [[rules.acyclic_siblings]]
+# ancestor = "services"
+
+# ── Thresholds ──────────────────────────────────────────────────
+# Override any threshold to tune health/insight sensitivity.
+# Use profile = "strict" | "relaxed" as a preset, then override
+# individual keys on top.
+
+[thresholds]
+# profile = "default"           # "default", "strict", or "relaxed"
+
+# instability_high = 0.8        # I ≥ this → "high_instability" insight
+# instability_low = 0.2         # I ≤ this → "highly_stable" insight
+
+# ce_high = 8                   # efferent coupling threshold
+# ca_high = 8                   # afferent coupling threshold
+
+# cc_high = 20                  # cyclomatic complexity → warning
+# cc_critical = 50              # cyclomatic complexity → critical
+
+# cog_high = 25                 # cognitive complexity → warning
+# cog_critical = 50             # cognitive complexity → critical
+
+# loc_high = 300                # module LOC → "large_module" insight
+# loc_critical = 500            # module LOC → "very_large_module" insight
+
+# dependents_high = 5           # blast radius → warning
+# dependents_critical = 10      # blast radius → critical
+# dependencies_high = 6         # fan-out threshold
+
+# cycle_size_high = 4           # cycle length → critical severity

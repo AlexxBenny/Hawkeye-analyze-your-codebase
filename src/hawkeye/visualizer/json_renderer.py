@@ -28,15 +28,7 @@ def render_json(
         for node in data["nodes"]:
             m = module_metrics.get(node["id"])
             if m:
-                node["metrics"] = {
-                    "ca": m.ca,
-                    "ce": m.ce,
-                    "instability": m.instability,
-                    "fan_in": m.fan_in,
-                    "fan_out": m.fan_out,
-                    "import_count": m.import_count,
-                    "health": m.health,
-                }
+                node["metrics"] = m.to_dict()
 
     # Add project-level metrics
     if project_metrics:

@@ -9,8 +9,10 @@ from .graph import DependencyGraph
 from .insights import (Insight, classify_risk, derive_module_insights,
                        insights_compact, insights_full)
 from .metrics import (ModuleMetrics, ProjectMetrics, calculate_module_metrics,
-                      calculate_project_metrics, format_metrics_table)
-from .rules import Violation, check_all_rules
+                      calculate_project_metrics, format_metrics_table,
+                      sort_metrics)
+from .rules import (Violation, check_acyclic_siblings_rules, check_all_rules,
+                    check_protected_rules)
 from .scanner import ModuleInfo, scan_project
 from .symbols import (SymbolGraph, SymbolReference, SymbolRegistry,
                       resolve_references)

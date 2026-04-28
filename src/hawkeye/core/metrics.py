@@ -28,13 +28,36 @@ class ModuleMetrics:
     class_count: int = 0
     function_count: int = 0
     method_count: int = 0
+    abstract_class_count: int = 0
     # Complexity
     cyclomatic_complexity: int = 1
     cognitive_complexity: int = 0
+    # Martin metrics
+    abstractness: float = 0.0           # A = Na / Nc (0 if no classes)
+    distance_main_seq: float = 0.0      # D = |A + I - 1|
 
     @property
     def health_emoji(self) -> str:
         return {"healthy": "✅", "warning": "⚠️", "critical": "🔴"}[self.health]
+
+    def to_dict(self) -> dict:
+        """Single canonical serialization. ALL renderers use this."""
+        return {
+            "module": self.module_name,
+            "ca": self.ca,
+            "ce": self.ce,
+            "instability": self.instability,
+            "loc": self.loc,
+            "health": self.health,
+            "cyclomatic": self.cyclomatic_complexity,
+            "cognitive": self.cognitive_complexity,
+            "abstractness": self.abstractness,
+            "distance": self.distance_main_seq,
+            "classes": self.class_count,
+            "functions": self.function_count,
+            "methods": self.method_count,
+            "abstract_classes": self.abstract_class_count,
+        }
 
 
 @dataclass
@@ -52,22 +75,39 @@ class ProjectMetrics:
     has_cycles: bool
 
 
-def _assess_health(ca: int, ce: int, instability: float, cc: int = 1, cog: int = 0) -> str:
-    """Determine module health based on coupling and complexity metrics."""
-    total_coupling = ca + ce
+def _assess_health(
+    ca: int, ce: int, instability: float,
+    cc: int = 1, cog: int = 0,
+    *,
+    thresholds: "ThresholdConfig | None" = None,
+) -> str:
+    """Determine module health based on coupling and complexity metrics.
+
+    All thresholds come from ThresholdConfig — no hardcoded numbers.
+    This ensures health labels are consistent with insights.
+    """
+    if thresholds is None:
+        from ..config import ThresholdConfig
+        thresholds = ThresholdConfig()
+
+    t = thresholds
+
     # Critical: extreme complexity
-    if cc > 50 or cog > 60:
+    if cc >= t.cc_critical or cog >= t.cog_critical:
         return "critical"
-    if total_coupling == 0:
+    if ca + ce == 0:
         return "healthy"
-    if instability > 0.8 and ce > 8:
+    # Critical: high instability + high coupling
+    if instability > t.instability_high and ce > t.ce_high:
         return "critical"
-    if instability > 0.7 and ce > 5:
-        return "warning"
-    if ca == 0 and ce > 10:
-        return "warning"  # High outgoing, nothing depends on it
     # Warning: moderate complexity
-    if cc > 20 or cog > 30:
+    if cc >= t.cc_high or cog >= t.cog_high:
+        return "warning"
+    # Warning: elevated instability + coupling (early signal)
+    if instability > t.instability_high * 0.875 and ce > t.ce_high * 0.625:
+        return "warning"
+    # Warning: high outgoing, nothing depends on it
+    if ca == 0 and ce > t.ce_high:
         return "warning"
     return "healthy"
 
@@ -75,6 +115,8 @@ def _assess_health(ca: int, ce: int, instability: float, cc: int = 1, cog: int =
 def calculate_module_metrics(
     graph: "DependencyGraph",
     symbol_tables: dict | None = None,
+    *,
+    thresholds: "ThresholdConfig | None" = None,
 ) -> dict[str, ModuleMetrics]:
     """Calculate coupling and complexity metrics for every module."""
     if symbol_tables is None:
@@ -98,7 +140,13 @@ def calculate_module_metrics(
         cc = st.cyclomatic_complexity if st else 1
         cog = st.cognitive_complexity if st else 0
 
-        health = _assess_health(ca, ce, instability, cc, cog)
+        health = _assess_health(ca, ce, instability, cc, cog, thresholds=thresholds)
+
+        # Abstractness (A) and Distance from Main Sequence (D)
+        abstract_count = st.abstract_class_count if st else 0
+        class_count = st.class_count if st else 0
+        abstractness = abstract_count / class_count if class_count > 0 else 0.0
+        distance = abs(abstractness + instability - 1.0)
 
         results[module_name] = ModuleMetrics(
             module_name=module_name,
@@ -110,11 +158,14 @@ def calculate_module_metrics(
             fan_in=ca,
             fan_out=ce,
             health=health,
-            class_count=st.class_count if st else 0,
+            class_count=class_count,
             function_count=st.function_count if st else 0,
             method_count=st.method_count if st else 0,
+            abstract_class_count=abstract_count,
             cyclomatic_complexity=cc,
             cognitive_complexity=cog,
+            abstractness=round(abstractness, 3),
+            distance_main_seq=round(distance, 3),
         )
 
     return results
@@ -150,30 +201,61 @@ def calculate_project_metrics(
     )
 
 
+_SORT_ALIASES = {
+    "cyclomatic": "cyclomatic_complexity",
+    "cognitive": "cognitive_complexity",
+    "distance": "distance_main_seq",
+}
+
+_HEALTH_ORDER = {"critical": 0, "warning": 1, "healthy": 2}
+
+
+def sort_metrics(
+    module_metrics: dict[str, ModuleMetrics],
+    sort_by: str = "instability",
+    limit: int = 0,
+) -> list[ModuleMetrics]:
+    """Sort and limit module metrics. Used by all output paths."""
+    key = _SORT_ALIASES.get(sort_by, sort_by)
+
+    if sort_by == "health":
+        result = sorted(
+            module_metrics.values(),
+            key=lambda m: (_HEALTH_ORDER.get(m.health, 3), -m.cyclomatic_complexity),
+        )
+    else:
+        result = sorted(
+            module_metrics.values(),
+            key=lambda m: getattr(m, key, 0),
+            reverse=True,
+        )
+
+    if limit > 0:
+        result = result[:limit]
+    return result
+
+
 def format_metrics_table(
     module_metrics: dict[str, ModuleMetrics],
     sort_by: str = "instability",
     limit: int = 0,
 ) -> str:
-    """Format metrics as an ASCII table sorted by the given field."""
-    metrics_list = sorted(
-        module_metrics.values(),
-        key=lambda m: getattr(m, sort_by, 0),
-        reverse=True,
-    )
+    """Format metrics as an ASCII table with all columns."""
+    metrics_list = sort_metrics(module_metrics, sort_by, limit)
 
-    if limit > 0:
-        metrics_list = metrics_list[:limit]
-
-    header = f"{'Module':<50} {'Ca':>4} {'Ce':>4} {'I':>7} {'LOC':>6} {'Health':>8}"
-    separator = "─" * len(header)
-    lines = [separator, header, separator]
+    header = (f"{'Module':<45} {'Ca':>3} {'Ce':>3} {'I':>6} "
+              f"{'CC':>4} {'Cog':>4} {'A':>5} {'D':>5} "
+              f"{'LOC':>5} {'Health':>8}")
+    sep = "─" * len(header)
+    lines = [sep, header, sep]
 
     for m in metrics_list:
         lines.append(
-            f"{m.module_name:<50} {m.ca:>4} {m.ce:>4} {m.instability:>7.3f} "
-            f"{m.loc:>6} {m.health_emoji:>8}"
+            f"{m.module_name:<45} {m.ca:>3} {m.ce:>3} {m.instability:>6.3f} "
+            f"{m.cyclomatic_complexity:>4} {m.cognitive_complexity:>4} "
+            f"{m.abstractness:>5.2f} {m.distance_main_seq:>5.2f} "
+            f"{m.loc:>5} {m.health_emoji:>8}"
         )
 
-    lines.append(separator)
+    lines.append(sep)
     return "\n".join(lines)

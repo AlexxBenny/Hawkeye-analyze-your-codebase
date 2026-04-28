@@ -2,11 +2,14 @@
 
 import pytest
 
-from hawkeye.config import LayerConfig, RulesConfig
+from hawkeye.config import (AcyclicSiblingsConfig, LayerConfig,
+                            ProtectedConfig, RulesConfig)
 from hawkeye.core.graph import DependencyGraph, EdgeInfo, NodeInfo
 from hawkeye.core.rules import (Violation, _find_layer, _module_matches,
-                                check_all_rules, check_forbidden_rules,
-                                check_independence_rules, check_layer_rules)
+                                check_acyclic_siblings_rules, check_all_rules,
+                                check_forbidden_rules,
+                                check_independence_rules, check_layer_rules,
+                                check_protected_rules)
 
 # ── Helpers ───────────────────────────────────────────────────
 
@@ -141,7 +144,7 @@ class TestForbiddenRules:
         assert len(violations) == 2
 
 
-# ── Independence rules ────────────────────────────────────────
+# ── Independence rules (transitive) ──────────────────────────
 
 
 class TestIndependenceRules:
@@ -164,6 +167,135 @@ class TestIndependenceRules:
         graph = _build_layered_graph([("auth.login", "core.utils")])
         groups = [["auth.*", "billing.*"]]
         violations = check_independence_rules(graph, groups)
+        assert len(violations) == 0
+
+    def test_catches_transitive_dependency(self):
+        """The critical fix: A → B → C where A and C must be independent."""
+        graph = _build_layered_graph([
+            ("auth.login", "core.shared"),
+            ("core.shared", "billing.charge"),
+        ])
+        groups = [["auth.*", "billing.*"]]
+        violations = check_independence_rules(graph, groups)
+        assert len(violations) == 1
+        assert violations[0].source == "auth.login"
+        assert violations[0].target == "billing.charge"
+
+    def test_transitive_path_included(self):
+        """Violation should include the full transitive path."""
+        graph = _build_layered_graph([
+            ("auth.login", "core.shared"),
+            ("core.shared", "billing.charge"),
+        ])
+        groups = [["auth.*", "billing.*"]]
+        violations = check_independence_rules(graph, groups)
+        assert violations[0].path is not None
+        assert violations[0].path == ["auth.login", "core.shared", "billing.charge"]
+
+    def test_no_duplicate_violations(self):
+        """Same pair should only be reported once."""
+        graph = _build_layered_graph([
+            ("auth.login", "billing.charge"),
+        ])
+        groups = [["auth.*", "billing.*"]]
+        violations = check_independence_rules(graph, groups)
+        # Only one direction reported (auth → billing)
+        assert len(violations) == 1
+
+
+# ── Protected rules ──────────────────────────────────────────
+
+
+class TestProtectedRules:
+    """Tests for protected module enforcement."""
+
+    def test_blocks_unauthorized_importer(self):
+        graph = _build_layered_graph([("api.views", "core.secrets")])
+        rules = [ProtectedConfig(
+            modules=["core.secrets"],
+            allowed_importers=["auth.*"],
+        )]
+        violations = check_protected_rules(graph, rules)
+        assert len(violations) == 1
+        assert violations[0].rule_type == "protected"
+        assert violations[0].source == "api.views"
+        assert violations[0].target == "core.secrets"
+
+    def test_allows_authorized_importer(self):
+        graph = _build_layered_graph([("auth.service", "core.secrets")])
+        rules = [ProtectedConfig(
+            modules=["core.secrets"],
+            allowed_importers=["auth.*"],
+        )]
+        violations = check_protected_rules(graph, rules)
+        assert len(violations) == 0
+
+    def test_multiple_protected_modules(self):
+        graph = _build_layered_graph([
+            ("api.views", "core.secrets"),
+            ("api.views", "core.tokens"),
+        ])
+        rules = [ProtectedConfig(
+            modules=["core.secrets", "core.tokens"],
+            allowed_importers=["auth.*"],
+        )]
+        violations = check_protected_rules(graph, rules)
+        assert len(violations) == 2
+
+    def test_multiple_allowed_importers(self):
+        graph = _build_layered_graph([
+            ("auth.service", "core.secrets"),
+            ("admin.panel", "core.secrets"),
+        ])
+        rules = [ProtectedConfig(
+            modules=["core.secrets"],
+            allowed_importers=["auth.*", "admin.*"],
+        )]
+        violations = check_protected_rules(graph, rules)
+        assert len(violations) == 0
+
+
+# ── Acyclic siblings rules ───────────────────────────────────
+
+
+class TestAcyclicSiblingsRules:
+    """Tests for acyclic sibling package enforcement."""
+
+    def test_catches_sibling_cycle(self):
+        graph = _build_layered_graph([
+            ("services.auth.login", "services.billing.charge"),
+            ("services.billing.charge", "services.auth.verify"),
+        ])
+        rules = [AcyclicSiblingsConfig(ancestor="services")]
+        violations = check_acyclic_siblings_rules(graph, rules)
+        assert len(violations) > 0
+        assert all(v.rule_type == "acyclic_siblings" for v in violations)
+
+    def test_allows_intra_sibling_cycle(self):
+        """Cycles within a single sibling package are allowed."""
+        graph = _build_layered_graph([
+            ("services.auth.login", "services.auth.verify"),
+            ("services.auth.verify", "services.auth.login"),
+        ])
+        rules = [AcyclicSiblingsConfig(ancestor="services")]
+        violations = check_acyclic_siblings_rules(graph, rules)
+        assert len(violations) == 0
+
+    def test_allows_acyclic_siblings(self):
+        """One-directional dependency between siblings is fine."""
+        graph = _build_layered_graph([
+            ("services.auth.login", "services.billing.charge"),
+        ])
+        rules = [AcyclicSiblingsConfig(ancestor="services")]
+        violations = check_acyclic_siblings_rules(graph, rules)
+        assert len(violations) == 0
+
+    def test_ignores_modules_outside_ancestor(self):
+        graph = _build_layered_graph([
+            ("utils.helper", "services.auth.login"),
+        ])
+        rules = [AcyclicSiblingsConfig(ancestor="services")]
+        violations = check_acyclic_siblings_rules(graph, rules)
         assert len(violations) == 0
 
 
@@ -190,6 +322,29 @@ class TestCheckAllRules:
         violations = check_all_rules(graph, config)
         assert len(violations) == 2
 
+    def test_all_rule_types_together(self):
+        graph = _build_layered_graph([
+            ("domain.models", "application.service"),      # layer violation
+            ("api.views", "cli.main"),                      # forbidden
+            ("api.views", "core.secrets"),                  # protected violation
+            ("auth.login", "billing.charge"),               # independence violation
+        ])
+        config = RulesConfig(
+            layers=LayerConfig(order=["domain", "application"], direction="downward"),
+            forbidden=[{"from": "api.*", "to": ["cli.*"]}],
+            protected=[ProtectedConfig(
+                modules=["core.secrets"],
+                allowed_importers=["auth.*"],
+            )],
+            independence=[["auth.*", "billing.*"]],
+        )
+        violations = check_all_rules(graph, config)
+        types = {v.rule_type for v in violations}
+        assert "layer" in types
+        assert "forbidden" in types
+        assert "protected" in types
+        assert "independence" in types
+
 
 class TestViolationDataclass:
     """Tests for the Violation dataclass."""
@@ -210,3 +365,11 @@ class TestViolationDataclass:
         )
         s = str(v)
         assert "⚠️" in s
+
+    def test_path_field(self):
+        v = Violation(
+            rule_type="independence", source="a", target="c",
+            message="test", path=["a", "b", "c"],
+        )
+        assert v.path == ["a", "b", "c"]
+

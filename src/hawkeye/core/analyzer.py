@@ -41,6 +41,7 @@ class SymbolInfo:
     end_line: int = 0
     method_count: int = 0  # Only for classes: number of methods
     complexity: int = 1    # Cyclomatic complexity of this symbol
+    is_abstract: bool = False  # ABC, Protocol, or has @abstractmethod
 
 
 @dataclass
@@ -48,9 +49,11 @@ class SymbolTable:
     """All symbols and complexity data extracted from a module."""
     classes: list[SymbolInfo] = field(default_factory=list)
     functions: list[SymbolInfo] = field(default_factory=list)
+    methods: list[SymbolInfo] = field(default_factory=list)  # ClassName.method
     class_count: int = 0
     function_count: int = 0
     method_count: int = 0
+    abstract_class_count: int = 0    # Classes detected as abstract
     cyclomatic_complexity: int = 1   # Module-level cyclomatic complexity
     cognitive_complexity: int = 0    # Cognitive complexity (nesting-weighted)
 
@@ -311,11 +314,64 @@ def _extract_imports(
     return list(resolved.values())
 
 
+# ── Abstract class detection ──────────────────────────────────
+# Conservative, high-confidence heuristics only.
+# We check base names syntactically — no import resolution needed.
+
+_ABSTRACT_BASE_NAMES = frozenset({"ABC", "ABCMeta", "Protocol"})
+
+
+def _is_abstract_class(node: ast.ClassDef) -> bool:
+    """Detect if a class is abstract using high-confidence patterns.
+
+    High-confidence signals (any one is sufficient):
+    - Inherits from ABC, ABCMeta, or Protocol (by name)
+    - Uses metaclass=ABCMeta keyword
+    - Contains at least one @abstractmethod-decorated method
+    """
+    # Check base classes by name
+    for base in node.bases:
+        name = None
+        if isinstance(base, ast.Name):
+            name = base.id
+        elif isinstance(base, ast.Attribute):
+            name = base.attr
+        if name in _ABSTRACT_BASE_NAMES:
+            return True
+
+    # Check metaclass=ABCMeta keyword
+    for kw in node.keywords:
+        if kw.arg == "metaclass":
+            kw_name = None
+            if isinstance(kw.value, ast.Name):
+                kw_name = kw.value.id
+            elif isinstance(kw.value, ast.Attribute):
+                kw_name = kw.value.attr
+            if kw_name == "ABCMeta":
+                return True
+
+    # Check for @abstractmethod on any method
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for dec in child.decorator_list:
+                dec_name = None
+                if isinstance(dec, ast.Name):
+                    dec_name = dec.id
+                elif isinstance(dec, ast.Attribute):
+                    dec_name = dec.attr
+                if dec_name == "abstractmethod":
+                    return True
+
+    return False
+
+
 def _extract_symbols(tree: ast.Module) -> SymbolTable:
     """Extract class/function definitions and complexity from a parsed AST."""
     classes: list[SymbolInfo] = []
     functions: list[SymbolInfo] = []
+    all_methods: list[SymbolInfo] = []
     total_methods = 0
+    abstract_count = 0
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.ClassDef):
@@ -324,6 +380,9 @@ def _extract_symbols(tree: ast.Module) -> SymbolTable:
                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
             ]
             total_methods += len(methods)
+            is_abstract = _is_abstract_class(node)
+            if is_abstract:
+                abstract_count += 1
             classes.append(SymbolInfo(
                 name=node.name,
                 kind="class",
@@ -331,7 +390,17 @@ def _extract_symbols(tree: ast.Module) -> SymbolTable:
                 end_line=getattr(node, 'end_lineno', node.lineno),
                 method_count=len(methods),
                 complexity=_cyclomatic_complexity(node),
+                is_abstract=is_abstract,
             ))
+            # Extract per-method entries for function breakdown
+            for method_node in methods:
+                all_methods.append(SymbolInfo(
+                    name=f"{node.name}.{method_node.name}",
+                    kind="method",
+                    line=method_node.lineno,
+                    end_line=getattr(method_node, 'end_lineno', method_node.lineno),
+                    complexity=_cyclomatic_complexity(method_node),
+                ))
 
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             functions.append(SymbolInfo(
@@ -349,9 +418,11 @@ def _extract_symbols(tree: ast.Module) -> SymbolTable:
     return SymbolTable(
         classes=classes,
         functions=functions,
+        methods=all_methods,
         class_count=len(classes),
         function_count=len(functions),
         method_count=total_methods,
+        abstract_class_count=abstract_count,
         cyclomatic_complexity=module_cc,
         cognitive_complexity=module_cog,
     )

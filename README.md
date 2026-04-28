@@ -1,12 +1,12 @@
 # 🦅 Hawkeye
 
-**Python architectural intelligence engine — dependency analysis, symbol-level impact tracking, and MCP server for AI coding agents.**
+**Python architectural intelligence engine — dependency analysis, coupling & complexity metrics, architecture enforcement, and MCP server for AI coding agents.**
 
 Hawkeye gives AI editors (Claude Code, Cursor, Windsurf) full architectural awareness before they edit your code — preventing broken imports, hidden coupling, and circular dependencies.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-195%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-271%20passed-brightgreen.svg)]()
 
 ---
 
@@ -28,23 +28,23 @@ pip install -e ".[mcp]"
 # 1. Analyze any Python project
 hawkeye analyze /path/to/project
 
-# 2. Get full architectural context for a file
+# 2. Get full architectural context for a file (AI-ready JSON)
 hawkeye context /path/to/project src/core/engine.py
 
-# 3. Check symbol-level impact before refactoring
+# 3. Deep-dive metrics with function-level breakdown
+hawkeye metrics /path/to/project --functions
+
+# 4. Check symbol-level blast radius before refactoring
 hawkeye impact /path/to/project src/core/engine.py -s Engine
 
-# 4. Find coupling hotspots
-hawkeye impact /path/to/project src/core/engine.py --hotspots
-
-# 5. Find dead code
-hawkeye impact /path/to/project src/core/engine.py --unused
+# 5. Enforce architecture rules in CI/CD
+hawkeye check /path/to/project --no-cycles
 
 # 6. Open interactive dependency graph
 hawkeye show /path/to/project
 
-# 7. Enforce architecture rules in CI
-hawkeye check /path/to/project --no-cycles
+# 7. Start MCP server for AI editors
+hawkeye serve -p /path/to/project
 ```
 
 ---
@@ -55,8 +55,10 @@ hawkeye check /path/to/project --no-cycles
 |---------|-----------------------|
 | "I changed a class and 5 tests broke" | `hawkeye impact` shows blast radius **before** you edit |
 | "This codebase has spaghetti imports" | `hawkeye analyze` maps the entire dependency graph |
-| "Which module is the riskiest?" | `hawkeye metrics` ranks by instability + complexity |
+| "Which module is the riskiest?" | `hawkeye metrics --sort health` ranks by health status |
 | "Are there circular imports?" | `hawkeye check --no-cycles` detects and suggests fixes |
+| "Where is the real complexity hiding?" | `hawkeye metrics --functions` shows per-method hotspots |
+| "Is this module over-concrete?" | `hawkeye metrics --sort distance` flags zone-of-pain modules |
 | "AI editor made a bad import" | MCP server gives the AI full context **before** it writes |
 
 ---
@@ -66,90 +68,40 @@ hawkeye check /path/to/project --no-cycles
 | Command | Description |
 |---------|-------------|
 | `hawkeye analyze <path>` | Full project analysis (text/json/dot/html output) |
-| `hawkeye context <path> <file...>` | Architectural context for one or more files |
-| `hawkeye impact <path> <file>` | Symbol-level impact analysis, hotspots, dead code |
-| `hawkeye show <path>` | Open interactive D3.js graph in browser |
+| `hawkeye context <path> <file...>` | AI-ready architectural context for one or more files |
+| `hawkeye metrics <path>` | Coupling + complexity + Martin metrics table |
+| `hawkeye impact <path> <file>` | Symbol-level blast radius, hotspots, dead code |
 | `hawkeye check <path>` | Enforce architecture rules (CI/CD exit codes) |
-| `hawkeye metrics <path>` | Coupling + complexity metrics table |
+| `hawkeye show <path>` | Open interactive D3.js graph in browser |
 | `hawkeye serve` | Start MCP server for AI editors |
 
-### Example: `hawkeye analyze`
+Every command has detailed help: `hawkeye <command> --help`
+
+### Example: `hawkeye metrics --functions`
 
 ```
-=== PROJECT SUMMARY: MyApp ===
+📊 Metrics: MyApp
+   21 modules | 4045 LOC | density 0.1452
+   Health: ✅ 6  ⚠️  6  🔴 9
 
-  Modules:          20
-  Dependencies:     40
-  Total LOC:        2696
-  Graph density:    0.1053
-  Avg instability:  0.444
-  Has cycles:       No ✅
+───────────────────────────────────────────────────────────────────────────────────
+Module                                Ca  Ce      I   CC  Cog     A     D   LOC   Health
+───────────────────────────────────────────────────────────────────────────────────
+myapp.engine                          8   5  0.385   45   92  0.00  0.62   340     🔴
+myapp.core.analyzer                   4   2  0.333   33   68  0.00  0.67   406     🔴
+myapp.config                          7   0  0.000   10   18  0.00  1.00   102     ✅
+───────────────────────────────────────────────────────────────────────────────────
 
-  Health breakdown:
-    ✅ Healthy:     9
-    ⚠️  Warning:    5
-    🔴 Critical:    6
+🔬 Per-Function Complexity (top 30):
 
-── Module Metrics ──
-Module                       Ca   Ce       I    LOC   Health
-MyApp.core.graph              8    2   0.200    251     🔴
-MyApp.core.metrics            5    1   0.167    144     ⚠️
-MyApp.core.analyzer           3    1   0.250    328     🔴
-MyApp.config                  4    0   0.000    102     ✅
+  Symbol                                  Module                   CC  Line
+  ──────────────────────────────────────────────────────────────────────────
+  Engine.get_file_context                 myapp.engine             34   251
+  Analyzer._extract_imports               myapp.core.analyzer      20   229
+  Engine.get_batch_context                myapp.engine             15   400
 ```
 
-### Example: `hawkeye impact --hotspots`
-
-```
-🔥 Symbol Hotspots (imported by ≥2 modules):
-
-  DependencyGraph       (core.graph)     → 16 importers
-  ModuleMetrics         (core.metrics)   → 10 importers
-  HawkeyeEngine         (engine)         →  6 importers
-```
-
-### Example: `hawkeye impact --unused`
-
-```
-💀 Unused Symbols (5 found):
-
-  EdgeInfo              (core.graph)        ← safe to make private
-  analyze_file          (core.analyzer)     ← superseded by analyze_project
-```
-
----
-
-## AI Editor Integration (MCP)
-
-Hawkeye exposes **10 MCP tools** designed for AI coding agents. Add to your editor's MCP config:
-
-```json
-{
-  "mcpServers": {
-    "hawkeye": {
-      "command": "hawkeye-mcp",
-      "args": ["--project", "/path/to/your/project"]
-    }
-  }
-}
-```
-
-### MCP Tools
-
-| Tool | Purpose |
-|------|---------|
-| `hawkeye_analyze(path)` | Scan project — call this first |
-| **`hawkeye_file_context(file)`** | **Everything about a file in one call** — deps, dependents, impact, cycles, health |
-| `hawkeye_context(files)` | Combined context for multi-file editing sessions |
-| `hawkeye_impact(file, symbol, mode)` | Symbol-level blast radius, hotspots, dead code |
-| `hawkeye_symbols(file)` | List all classes/functions with usage counts |
-| `hawkeye_find(pattern)` | Search for modules by name |
-| `hawkeye_cycles()` | Import cycles with severity and break suggestions |
-| `hawkeye_metrics(sort_by)` | Coupling + complexity metrics for all modules |
-| `hawkeye_path(source, target)` | Shortest dependency path between modules |
-| `hawkeye_graph(max_depth)` | Full graph as structured JSON |
-
-### Example: `hawkeye_file_context`
+### Example: `hawkeye context`
 
 One call gives the AI agent everything it needs:
 
@@ -173,9 +125,23 @@ One call gives the AI agent everything it needs:
     "ca": 8, "ce": 3, "instability": 0.273,
     "health": "critical",
     "cyclomatic_complexity": 45,
-    "cognitive_complexity": 32
-  }
+    "cognitive_complexity": 32,
+    "abstractness": 0.0,
+    "distance_main_seq": 0.727
+  },
+  "insights": ["extreme_cyclomatic", "extreme_cognitive", "wide_transitive_reach"],
+  "risk_profile": "amplifier"
 }
+```
+
+### Example: `hawkeye impact --hotspots`
+
+```
+🔥 Symbol Hotspots (imported by ≥2 modules):
+
+  DependencyGraph       (core.graph)     → 16 importers
+  ModuleMetrics         (core.metrics)   → 10 importers
+  HawkeyeEngine         (engine)         →  6 importers
 ```
 
 ---
@@ -201,15 +167,87 @@ direction = "downward"
 from = "api.*"
 to = ["cli.*", "scripts.*"]
 
-# Ensure module groups are independent
+# Ensure module groups are independent (transitive — catches indirect paths)
 [[rules.independence]]
 modules = ["auth", "billing", "notifications"]
+
+# Only auth modules may import secrets
+[[rules.protected]]
+modules = ["core.secrets", "core.tokens"]
+allowed_importers = ["auth.*"]
+
+# Sibling services must not form cycles
+[[rules.acyclic_siblings]]
+ancestor = "services"
 ```
 
 ```bash
 # CI/CD integration — exits non-zero on violations
 hawkeye check /path/to/project --no-cycles
 ```
+
+### Rule Types (5)
+
+| Rule | Description |
+|------|-------------|
+| **forbidden** | Hard-block specific import patterns |
+| **protected** | Only allowlisted modules may import protected targets |
+| **layers** | Enforce directional dependency flow between layers |
+| **independence** | No transitive paths between independent module groups |
+| **acyclic_siblings** | Sibling packages under an ancestor must not form cycles |
+
+---
+
+## Threshold Configuration
+
+Tune health and insight sensitivity with profiles:
+
+```toml
+[thresholds]
+profile = "strict"  # "default", "strict", or "relaxed"
+
+# Override individual thresholds
+cyclomatic_high = 15
+cognitive_high = 20
+```
+
+| Profile | Cyclomatic High | Cognitive High | Instability Critical |
+|---------|----------------|----------------|---------------------|
+| default | 20 | 30 | 0.8 |
+| strict | 10 | 15 | 0.7 |
+| relaxed | 30 | 50 | 0.9 |
+
+---
+
+## AI Editor Integration (MCP)
+
+Hawkeye exposes **10 MCP tools** designed for AI coding agents. Add to your editor's MCP config:
+
+```json
+{
+  "mcpServers": {
+    "hawkeye": {
+      "command": "hawkeye-mcp",
+      "args": ["--project", "/path/to/your/project"]
+    }
+  }
+}
+```
+
+### MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `hawkeye_analyze(path)` | Scan project — call this first |
+| **`hawkeye_file_context(file)`** | **Everything about a file in one call** — deps, dependents, impact, cycles, health, insights |
+| `hawkeye_context(files)` | Combined context for multi-file editing sessions |
+| `hawkeye_impact(file, symbol, mode)` | Symbol-level blast radius, hotspots, dead code |
+| `hawkeye_symbols(file)` | List all classes/functions with usage counts |
+| `hawkeye_find(pattern)` | Search for modules by name |
+| `hawkeye_cycles()` | Import cycles with severity and break suggestions |
+| `hawkeye_metrics(sort_by)` | Full metrics for all modules |
+| `hawkeye_path(source, target)` | Shortest dependency path between modules |
+| `hawkeye_graph(max_depth)` | Full graph as structured JSON |
 
 ---
 
@@ -224,11 +262,13 @@ hawkeye check /path/to/project --no-cycles
 - **Ca** — Afferent coupling (who depends on me)
 - **Ce** — Efferent coupling (who do I depend on)
 - **I** — Instability (Ce / (Ca + Ce)) — 0.0 = stable, 1.0 = unstable
+- **A** — Abstractness (abstract classes / total classes)
+- **D** — Distance from Main Sequence (|A + I - 1|) — 0.0 = ideal
 
 ### Complexity Metrics
 - **Cyclomatic complexity** — decision branches per function
 - **Cognitive complexity** — nesting-weighted (SonarSource specification)
-- Per-function, per-class, and per-module aggregation
+- Per-function, per-method, per-class, and per-module aggregation
 
 ### Cycle Detection
 - Tarjan's Strongly Connected Components (SCC) algorithm
@@ -242,8 +282,15 @@ hawkeye check /path/to/project --no-cycles
 - Dead code detection (defined but never imported)
 - Symbol-level impact analysis (blast radius per class/function)
 
+### Deterministic Insights
+- 18 insight codes derived from metrics (no advice, no bias)
+- Risk profiles: hub, volatile, amplifier, tangled, fragile
+- Zone detection: Zone of Pain (rigid), Zone of Uselessness (abstract)
+- Token-efficient encoding: compact mode adds ~5-15 tokens, 0 for healthy modules
+
 ### Health Scoring
 - Composite of coupling + complexity → **healthy** / **warning** / **critical**
+- Configurable thresholds with profiles (default, strict, relaxed)
 - Per-module and project-level aggregation
 
 ---
@@ -277,14 +324,15 @@ Hawkeye/
 ├── src/hawkeye/
 │   ├── engine.py               # Central orchestrator (9-step pipeline)
 │   ├── config.py               # TOML config with walk-up discovery
-│   ├── cli.py                  # 7 CLI commands
+│   ├── cli.py                  # 7 CLI commands with detailed help
 │   ├── core/                   # Analysis pipeline
 │   │   ├── scanner.py          #   File discovery + LOC counting
 │   │   ├── analyzer.py         #   AST imports + symbols + complexity
 │   │   ├── graph.py            #   Directed graph + algorithms
-│   │   ├── metrics.py          #   Coupling + complexity metrics
+│   │   ├── metrics.py          #   Coupling + complexity + Martin metrics
 │   │   ├── cycles.py           #   Tarjan's SCC + severity scoring
-│   │   ├── rules.py            #   Architecture rule enforcement
+│   │   ├── rules.py            #   5 architecture rule types
+│   │   ├── insights.py         #   Deterministic signal derivation
 │   │   └── symbols.py          #   Cross-file symbol resolution
 │   ├── server/                 # AI editor integration
 │   │   └── mcp.py              #   10 MCP tools
@@ -293,17 +341,17 @@ Hawkeye/
 │       ├── dot_renderer.py     #   Graphviz DOT format
 │       ├── text_renderer.py    #   Terminal tables + summaries
 │       └── json_renderer.py    #   Structured JSON
-├── tests/                      # 195 tests (pytest)
+├── tests/                      # 271 tests (pytest)
 │   ├── conftest.py             #   Shared fixtures
-│   ├── test_scanner.py         #   17 tests
-│   ├── test_analyzer.py        #   22 tests
-│   ├── test_graph.py           #   16 tests
-│   ├── test_metrics.py         #   15 tests
-│   ├── test_cycles.py          #   14 tests
-│   ├── test_rules.py           #   16 tests
-│   ├── test_symbols.py         #   27 tests
-│   └── test_engine.py          #   22 tests
-├── examples/                   # Usage examples
+│   ├── test_scanner.py
+│   ├── test_analyzer.py
+│   ├── test_graph.py
+│   ├── test_metrics.py
+│   ├── test_cycles.py
+│   ├── test_rules.py
+│   ├── test_insights.py
+│   ├── test_symbols.py
+│   └── test_engine.py
 ├── hawkeye.toml                # Example config
 ├── pyproject.toml              # pip install ready
 └── LICENSE                     # MIT

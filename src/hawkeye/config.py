@@ -25,6 +25,114 @@ DEFAULT_EXCLUDES = {
 }
 
 
+# ── Threshold Configuration ───────────────────────────────────
+
+
+@dataclass
+class ThresholdConfig:
+    """Single source of truth for ALL numeric thresholds in Hawkeye.
+
+    Used by: health classification, insight derivation, risk profiles.
+    No function should contain hardcoded numeric thresholds — everything
+    flows through this dataclass.
+
+    The ``profile`` field labels the output for reproducibility: two runs
+    with the same profile produce identical classifications.
+    """
+    profile: str = "default"
+
+    # ── Instability ──
+    instability_high: float = 0.8
+    instability_low: float = 0.2
+
+    # ── Coupling ──
+    ce_high: int = 8
+    ca_high: int = 8
+
+    # ── Cyclomatic complexity ──
+    cc_high: int = 20
+    cc_critical: int = 50
+
+    # ── Cognitive complexity ──
+    cog_high: int = 25
+    cog_critical: int = 50
+
+    # ── Module size ──
+    loc_high: int = 300
+    loc_critical: int = 500
+
+    # ── Blast radius ──
+    dependents_high: int = 5
+    dependents_critical: int = 10
+    dependencies_high: int = 6
+
+    # ── Cycles ──
+    cycle_size_high: int = 4
+
+    # ── Martin zones (abstractness + instability) ──
+    distance_high: float = 0.5     # D ≥ this → zone_of_pain / zone_of_uselessness
+    distance_low: float = 0.2      # D ≤ this → well_balanced
+    abstract_high: float = 0.8     # A ≥ this → highly abstract
+    abstract_low: float = 0.2      # A ≤ this → concrete
+
+    @classmethod
+    def strict(cls) -> "ThresholdConfig":
+        """Lower thresholds — more warnings, catches issues early."""
+        return cls(
+            profile="strict",
+            cc_high=10, cc_critical=30,
+            cog_high=15, cog_critical=30,
+            loc_high=200, loc_critical=300,
+            dependents_high=3, dependents_critical=5,
+            ce_high=5, ca_high=5,
+            dependencies_high=4,
+        )
+
+    @classmethod
+    def relaxed(cls) -> "ThresholdConfig":
+        """Higher thresholds — fewer warnings, for large/complex codebases."""
+        return cls(
+            profile="relaxed",
+            cc_high=30, cc_critical=80,
+            cog_high=40, cog_critical=80,
+            loc_high=500, loc_critical=1000,
+            dependents_high=10, dependents_critical=20,
+            ce_high=12, ca_high=12,
+            dependencies_high=10,
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ThresholdConfig":
+        """Build from a TOML [thresholds] dict, applying a profile first."""
+        profile_name = data.get("profile", "default")
+
+        if profile_name == "strict":
+            base = cls.strict()
+        elif profile_name == "relaxed":
+            base = cls.relaxed()
+        else:
+            base = cls()
+
+        # Override individual keys on top of the profile
+        for key, value in data.items():
+            if key == "profile":
+                continue
+            if hasattr(base, key):
+                setattr(base, key, value)
+
+        # Mark as custom if individual overrides were applied
+        has_overrides = any(k != "profile" and hasattr(base, k) for k in data)
+        if has_overrides and profile_name == "default":
+            base.profile = "custom"
+        elif has_overrides:
+            base.profile = f"{profile_name}+custom"
+
+        return base
+
+
+# ── Architecture Rules ─────────────────────────────────────────
+
+
 @dataclass
 class LayerConfig:
     """Layered architecture rule configuration."""
@@ -34,11 +142,29 @@ class LayerConfig:
 
 
 @dataclass
+class ProtectedConfig:
+    """Protected module rule — only allowed importers may import these modules."""
+    modules: list[str] = field(default_factory=list)
+    allowed_importers: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AcyclicSiblingsConfig:
+    """Acyclic siblings rule — sibling packages under ancestor must not form cycles."""
+    ancestor: str = ""
+
+
+@dataclass
 class RulesConfig:
     """Architecture rule definitions."""
     layers: Optional[LayerConfig] = None
     forbidden: list[dict[str, list[str]]] = field(default_factory=list)
     independence: list[list[str]] = field(default_factory=list)
+    protected: list[ProtectedConfig] = field(default_factory=list)
+    acyclic_siblings: list[AcyclicSiblingsConfig] = field(default_factory=list)
+
+
+# ── Main Configuration ─────────────────────────────────────────
 
 
 @dataclass
@@ -55,6 +181,7 @@ class HawkeyeConfig:
     output_format: str = "text"
     output_file: Optional[str] = None
     rules: RulesConfig = field(default_factory=RulesConfig)
+    thresholds: ThresholdConfig = field(default_factory=ThresholdConfig)
 
     @classmethod
     def from_toml(cls, path: Path) -> "HawkeyeConfig":
@@ -103,7 +230,22 @@ class HawkeyeConfig:
                 )
             rules.forbidden = rules_data.get("forbidden", [])
             rules.independence = rules_data.get("independence", [])
+            rules.protected = [
+                ProtectedConfig(
+                    modules=p.get("modules", []),
+                    allowed_importers=p.get("allowed_importers", []),
+                )
+                for p in rules_data.get("protected", [])
+            ]
+            rules.acyclic_siblings = [
+                AcyclicSiblingsConfig(ancestor=a.get("ancestor", ""))
+                for a in rules_data.get("acyclic_siblings", [])
+            ]
             config.rules = rules
+
+        thresholds_data = data.get("thresholds", {})
+        if thresholds_data:
+            config.thresholds = ThresholdConfig.from_dict(thresholds_data)
 
         return config
 

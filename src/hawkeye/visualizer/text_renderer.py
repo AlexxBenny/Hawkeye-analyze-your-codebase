@@ -75,6 +75,10 @@ def render_module_info(
             f"Afferent coupling (Ca):  {m.ca}",
             f"Efferent coupling (Ce):  {m.ce}",
             f"Instability:             {m.instability:.3f}",
+            f"Cyclomatic complexity:    {m.cyclomatic_complexity}",
+            f"Cognitive complexity:     {m.cognitive_complexity}",
+            f"Abstractness:            {m.abstractness:.3f}",
+            f"Distance (main seq):     {m.distance_main_seq:.3f}",
             f"Health:                  {m.health} {m.health_emoji}",
         ])
 

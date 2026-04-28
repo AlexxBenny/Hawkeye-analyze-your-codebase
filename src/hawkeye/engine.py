@@ -112,7 +112,8 @@ class HawkeyeEngine:
 
         # 8. Compute metrics (with symbol data for complexity)
         self._module_metrics = calculate_module_metrics(
-            self._graph, self._symbol_tables
+            self._graph, self._symbol_tables,
+            thresholds=self.config.thresholds,
         )
         self._project_metrics = calculate_project_metrics(
             self._graph, self._module_metrics,
@@ -308,6 +309,7 @@ class HawkeyeEngine:
             "file": node.rel_path,
             "loc": node.loc,
             "package": node.package,
+            "threshold_profile": self.config.thresholds.profile,
             "dependencies": deps,
             "dependency_count": len(deps),
             "dependents": dependents,
@@ -355,6 +357,7 @@ class HawkeyeEngine:
             c for c in self.cycle_report.cycles
             if module in c.path[:-1]
         ]
+        t = self.config.thresholds
         insights = derive_module_insights(
             instability=m.instability if m else 0.0,
             ca=m.ca if m else 0,
@@ -366,6 +369,10 @@ class HawkeyeEngine:
             transitive_dependents=len(transitive),
             cycle_count=len(cycle_modules),
             max_cycle_size=max((len(c.path) - 1 for c in cycle_modules), default=0),
+            abstractness=m.abstractness if m else 0.0,
+            distance_main_seq=m.distance_main_seq if m else 0.0,
+            class_count=m.class_count if m else 0,
+            thresholds=t,
         )
         if insights:
             result["insights"] = (
@@ -383,6 +390,7 @@ class HawkeyeEngine:
             direct_dependents=len(dependents),
             transitive_dependents=len(transitive),
             cycle_count=len(cycle_modules),
+            thresholds=t,
         )
         if risk:
             result["risk"] = risk
