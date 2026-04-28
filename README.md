@@ -137,7 +137,7 @@ Hawkeye is built specifically for AI agent consumption:
 | **Token-efficient** | Compact mode (default) strips verbose fields. A healthy module adds ~5 tokens. A problematic one adds ~30. Zero wasted tokens on modules with no issues. |
 | **One-call context** | `hawkeye_file_context` replaces 5+ separate queries. One tool call = full architectural picture. |
 | **Fast** | Single-pass AST parsing. 281 modules analyzed in ~5 seconds. Results cached for the session. |
-| **Zero dependencies** | Core analysis uses Python stdlib only. No transitive dependency hell. Installs in under a second. |
+| **Zero dependencies** | Core analysis uses Python stdlib only (no external parsers). No transitive dependency hell. Installs in under a second. |
 | **Machine-readable** | Every output is structured JSON. Insight codes are enumerated strings, not natural language. Risk profiles are single-token labels. |
 
 ### Token Budget
@@ -360,7 +360,7 @@ The active profile is embedded in JSON output (`threshold_profile` field) for re
 ## How It Works
 
 ```
-Python files → AST parsing (single pass) → Import resolution → Dependency graph
+Source files (Py/JS/TS) → Language-specific parsing → Import resolution → Dependency graph
                                                                       ↓
                     Symbol registry ← Symbol extraction     Graph algorithms
                          ↓                                        ↓

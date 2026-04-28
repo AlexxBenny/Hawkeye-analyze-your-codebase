@@ -1,0 +1,2 @@
+"""JavaScript language adapter."""
+

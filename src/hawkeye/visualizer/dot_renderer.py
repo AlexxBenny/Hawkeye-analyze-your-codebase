@@ -69,7 +69,7 @@ def render_dot(
         """Generate a DOT node definition."""
         node = graph.nodes[name]
         label = name.split(".")[-1]  # Short name
-        tooltip = f"{name}\\n{node.rel_path}\\nLOC: {node.loc}"
+        tooltip = f"{name}\\n{node.rel_path}\\nLang: {node.language}\\nLOC: {node.loc}"
 
         if colored:
             hue = _module_hue(name, total)

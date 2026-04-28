@@ -32,6 +32,7 @@ class NodeInfo:
     is_package: bool
     loc: int
     depth: int  # Nesting depth (number of dots in module name)
+    language: str = "python"
 
 
 class DependencyGraph:
@@ -65,6 +66,7 @@ class DependencyGraph:
                 is_package=info.is_package,
                 loc=info.loc,
                 depth=depth,
+                language=info.language,
             )
             graph.adjacency.setdefault(name, set())
             graph.reverse_adj.setdefault(name, set())
@@ -217,6 +219,7 @@ class DependencyGraph:
                     is_package=node.is_package,
                     loc=node.loc,
                     depth=collapsed.count("."),
+                    language=node.language,
                 )
                 new_graph.adjacency[collapsed] = set()
                 new_graph.reverse_adj[collapsed] = set()
@@ -276,6 +279,7 @@ class DependencyGraph:
         for name, node in sorted(self.nodes.items()):
             nodes.append({
                 "id": name,
+                "language": node.language,
                 "package": node.package,
                 "rel_path": node.rel_path,
                 "is_package": node.is_package,

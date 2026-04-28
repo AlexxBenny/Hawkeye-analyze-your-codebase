@@ -14,7 +14,7 @@ from . import __version__
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hawkeye",
-        description="Hawkeye — Python architectural intelligence engine.",
+        description="Hawkeye — multi-language architectural intelligence engine.",
         epilog=(
             "examples:\n"
             "  hawkeye analyze ./myproject                Full project analysis\n"
@@ -35,12 +35,27 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"hawkeye {__version__}")
     sub = parser.add_subparsers(dest="command", help="Available commands")
 
+    def _add_language_options(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--languages",
+            nargs="*",
+            help="Languages to analyze (python, javascript, typescript)",
+        )
+        p.add_argument(
+            "--tsconfig",
+            help="Path to tsconfig.json (for TypeScript path resolution)",
+        )
+        p.add_argument(
+            "--package-root",
+            help="Package root for JS/TS resolution (defaults to project root)",
+        )
+
     # ── analyze ──
     p = sub.add_parser(
         "analyze",
         help="Full project analysis with metrics and health scoring",
         description=(
-            "Scan a Python project and produce a comprehensive report including\n"
+            "Scan a codebase and produce a comprehensive report including\n"
             "dependency graph, coupling metrics (Ca/Ce/I), complexity metrics\n"
             "(CC/Cog), abstractness (A), distance from main sequence (D),\n"
             "health classification, and cycle detection."
@@ -55,7 +70,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("project", help="Path to the Python project root")
+    p.add_argument("project", help="Path to the codebase root")
     p.add_argument("-f", "--format", choices=["text", "json", "dot", "html"],
                    default="text", help="Output format (default: text)")
     p.add_argument("-o", "--output", help="Write output to file (auto-appends extension)")
@@ -65,6 +80,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Glob patterns to exclude (e.g., 'test*' 'scripts.*')")
     p.add_argument("--include", nargs="*", default=[],
                    help="Glob patterns to include (only matching modules are analyzed)")
+    _add_language_options(p)
 
     # ── context ──
     p = sub.add_parser(
@@ -85,9 +101,10 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("project", help="Path to the Python project root")
+    p.add_argument("project", help="Path to the codebase root")
     p.add_argument("file", nargs="+",
                    help="File path(s) or module name(s) to get context for")
+    _add_language_options(p)
 
     # ── show ──
     p = sub.add_parser(
@@ -106,10 +123,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("project", help="Path to the Python project root")
+    p.add_argument("project", help="Path to the codebase root")
     p.add_argument("-o", "--output", help="Save HTML to file (default: <project>/hawkeye_graph.html)")
     p.add_argument("--max-depth", type=int,
                    help="Collapse modules deeper than N levels into their parent")
+    _add_language_options(p)
 
     # ── check ──
     p = sub.add_parser(
@@ -135,10 +153,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("project", help="Path to the Python project root")
+    p.add_argument("project", help="Path to the codebase root")
     p.add_argument("--config", help="Path to hawkeye.toml (default: auto-discover)")
     p.add_argument("--no-cycles", action="store_true",
                    help="Fail if any import cycles exist")
+    _add_language_options(p)
 
     # ── metrics ──
     p = sub.add_parser(
@@ -166,7 +185,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("project", help="Path to the Python project root")
+    p.add_argument("project", help="Path to the codebase root")
     p.add_argument("--sort", choices=[
         "instability", "ca", "ce", "loc",
         "cyclomatic", "cognitive", "health",
@@ -178,6 +197,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Show per-function/method complexity breakdown (top 30)")
     p.add_argument("--json", dest="metrics_json", action="store_true",
                    help="Output as JSON (all metrics fields included)")
+    _add_language_options(p)
 
     # ── impact ──
     p = sub.add_parser(
@@ -201,7 +221,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("project", help="Path to the Python project root")
+    p.add_argument("project", help="Path to the codebase root")
     p.add_argument("file", help="File path or module name to analyze impact for")
     p.add_argument("--symbol", "-s",
                    help="Specific symbol name to analyze (e.g., 'Engine', 'process_request')")
@@ -210,6 +230,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--unused", action="store_true",
                    help="Show symbols defined but never imported elsewhere")
     p.add_argument("--json", action="store_true", help="Output as JSON")
+    _add_language_options(p)
 
     # ── serve ──
     p = sub.add_parser(
@@ -257,7 +278,7 @@ def _ensure_utf8():
 
 def _make_engine(args, *, use_config: bool = False):
     """Create and run an engine from CLI args."""
-    from .config import HawkeyeConfig
+    from .config import HawkeyeConfig, LanguageSettings
     from .engine import HawkeyeEngine
 
     if use_config and hasattr(args, "config") and args.config:
@@ -270,6 +291,20 @@ def _make_engine(args, *, use_config: bool = False):
             config.exclude_patterns = args.exclude or []
         if hasattr(args, "include"):
             config.include_patterns = args.include or []
+        if hasattr(args, "languages") and args.languages:
+            config.languages = args.languages
+
+    if hasattr(args, "languages") and args.languages:
+        config.languages = args.languages
+    if hasattr(args, "tsconfig") and args.tsconfig:
+        config.language_settings.setdefault(
+            "typescript", LanguageSettings()
+        ).tsconfig = args.tsconfig
+    if hasattr(args, "package_root") and args.package_root:
+        for lang in ("javascript", "typescript"):
+            config.language_settings.setdefault(
+                lang, LanguageSettings()
+            ).package_root = args.package_root
 
     engine = HawkeyeEngine(config)
     engine.analyze(args.project)

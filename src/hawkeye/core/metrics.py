@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class ModuleMetrics:
     """Computed metrics for a single module."""
     module_name: str
+    language: str = "python"
     ca: int             # Afferent coupling — modules that depend on this one
     ce: int             # Efferent coupling — modules this one depends on
     instability: float  # I = Ce / (Ca + Ce), 0=stable, 1=unstable
@@ -49,6 +50,7 @@ class ModuleMetrics:
         """Single canonical serialization. ALL renderers use this."""
         d = {
             "module": self.module_name,
+            "language": self.language,
             "ca": self.ca,
             "ce": self.ce,
             "instability": self.instability,
@@ -181,6 +183,7 @@ def calculate_module_metrics(
 
         results[module_name] = ModuleMetrics(
             module_name=module_name,
+            language=node.language,
             ca=ca,
             ce=ce,
             instability=round(instability, 3),

@@ -6,18 +6,21 @@ re-analysis via file content hashing.
 """
 
 import hashlib
+import os
 from pathlib import Path
 from typing import Optional
 
 from .config import HawkeyeConfig
 from .core import (CycleReport, DependencyGraph, ModuleInfo, ModuleMetrics,
                    ProjectMetrics, ResolvedImport, SymbolGraph,
-                   SymbolReference, SymbolRegistry, Violation, analyze_project,
+                   SymbolReference, SymbolRegistry, Violation,
                    calculate_module_metrics, calculate_project_metrics,
                    check_all_rules, classify_risk, derive_module_insights,
                    detect_cycles, insights_compact, insights_full,
                    resolve_references, scan_project)
 from .core.analyzer import SymbolTable
+from .languages.registry import analyze_project as analyze_languages
+from .languages.registry import get_language_adapters
 
 
 def _hash_file(path: str) -> str:
@@ -55,6 +58,8 @@ class HawkeyeEngine:
         # File hashes for incremental analysis
         self._file_hashes: dict[str, str] = {}
         self._symbol_tables: dict[str, SymbolTable] = {}
+        self._language_adapters: dict[str, object] = {}
+        self._known_extensions: set[str] = set()
 
     # ── Analysis Pipeline ──────────────────────────────────────
 
@@ -66,11 +71,16 @@ class HawkeyeEngine:
         self._project_name = self.config.project_name or root.name
 
         # 1. Scan
+        self._language_adapters = get_language_adapters(
+            self.config.languages, self.config.language_settings
+        )
         self._file_index = scan_project(
             str(root),
             exclude_dirs=self.config.exclude_dirs,
             exclude_patterns=self.config.exclude_patterns,
             include_patterns=self.config.include_patterns,
+            languages=self.config.languages,
+            language_settings=self.config.language_settings,
         )
 
         # 2. Build path index (file path → module name)
@@ -78,6 +88,15 @@ class HawkeyeEngine:
         for name, info in self._file_index.items():
             self._path_index[info.rel_path.replace("\\", "/")] = name
             self._path_index[info.full_path.replace("\\", "/")] = name
+            rel_no_ext = os.path.splitext(info.rel_path.replace("\\", "/"))[0]
+            full_no_ext = os.path.splitext(info.full_path.replace("\\", "/"))[0]
+            self._path_index[rel_no_ext] = name
+            self._path_index[full_no_ext] = name
+            if Path(info.rel_path).stem == "index":
+                rel_dir = str(Path(info.rel_path).parent).replace("\\", "/")
+                full_dir = str(Path(info.full_path).parent).replace("\\", "/")
+                self._path_index[rel_dir] = name
+                self._path_index[full_dir] = name
             # Also index with backslashes for Windows
             self._path_index[info.rel_path] = name
             self._path_index[info.full_path] = name
@@ -87,10 +106,16 @@ class HawkeyeEngine:
             name: _hash_file(info.full_path)
             for name, info in self._file_index.items()
         }
+        self._known_extensions = {
+            Path(info.rel_path).suffix.lower()
+            for info in self._file_index.values()
+            if Path(info.rel_path).suffix
+        }
 
         # 4. Analyze imports + symbols in single AST pass
-        self._analysis, self._symbol_tables = analyze_project(
-            self._file_index, self._project_name
+        self._analysis, self._symbol_tables = analyze_languages(
+            self._file_index, self._project_name, self._project_root,
+            self._language_adapters,
         )
 
         # 5. Build module-level graph
@@ -239,8 +264,12 @@ class HawkeyeEngine:
                     return self._path_index[rel]
 
         # Fuzzy: try adding .py, removing .py, etc.
-        for variant in [normalized, normalized + ".py",
-                        normalized.removesuffix(".py")]:
+        variants = [normalized]
+        for ext in sorted(self._known_extensions or {".py"}):
+            variants.append(normalized + ext)
+            if normalized.endswith(ext):
+                variants.append(normalized.removesuffix(ext))
+        for variant in variants:
             if variant in self._path_index:
                 return self._path_index[variant]
 
@@ -276,6 +305,7 @@ class HawkeyeEngine:
             entry: dict = {"module": dep}
             if dep_node:
                 entry["file"] = dep_node.rel_path
+                entry["language"] = dep_node.language
             if edge and edge.is_cycle_member:
                 entry["is_cycle"] = True
             if not compact and edge:
@@ -290,6 +320,7 @@ class HawkeyeEngine:
             entry = {"module": dep}
             if dep_node:
                 entry["file"] = dep_node.rel_path
+                entry["language"] = dep_node.language
             dependents.append(entry)
 
         # Transitive impact
@@ -306,6 +337,7 @@ class HawkeyeEngine:
 
         result: dict = {
             "module": module,
+            "language": node.language,
             "file": node.rel_path,
             "loc": node.loc,
             "package": node.package,
@@ -430,6 +462,7 @@ class HawkeyeEngine:
             if ctx:
                 file_contexts.append({
                     "module": ctx["module"],
+                    "language": ctx.get("language", "python"),
                     "file": ctx["file"],
                     "health": ctx.get("metrics", {}).get("health", "unknown"),
                     "dependency_count": ctx["dependency_count"],

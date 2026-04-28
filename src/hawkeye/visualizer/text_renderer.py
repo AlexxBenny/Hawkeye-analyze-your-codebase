@@ -26,7 +26,7 @@ def render_dependency_tree(graph: "DependencyGraph") -> str:
         node = graph.nodes[module]
 
         lines.append(f"📦 {module}")
-        lines.append(f"   File: {node.rel_path}  |  LOC: {node.loc}")
+        lines.append(f"   File: {node.rel_path}  |  LOC: {node.loc}  |  Lang: {node.language}")
 
         if deps:
             lines.append(f"   Imports ({len(deps)}):")
@@ -66,6 +66,7 @@ def render_module_info(
         f"Is package: {node.is_package}",
         f"LOC:        {node.loc}",
         f"Depth:      {node.depth}",
+        f"Language:   {node.language}",
     ]
 
     if m:

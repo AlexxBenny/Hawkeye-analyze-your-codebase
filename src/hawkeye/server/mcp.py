@@ -68,7 +68,7 @@ def create_mcp_server():
     mcp = FastMCP(
         "hawkeye",
         instructions=(
-            "Hawkeye analyzes Python project architecture. Workflow:\n"
+            "Hawkeye analyzes multi-language codebase architecture. Workflow:\n"
             "1. hawkeye_analyze(project_path) — scan the project (do this first)\n"
             "2. hawkeye_file_context(file) — get full context before editing a file\n"
             "3. hawkeye_context(files) — get combined context for multiple files\n"
@@ -82,8 +82,12 @@ def create_mcp_server():
     # ── 1. Analyze ─────────────────────────────────────────────
 
     @mcp.tool(annotations=_TOOL_ANNOTATIONS_READONLY)
-    def hawkeye_analyze(project_path: str) -> dict[str, object]:
-        """Scan a Python project and build its dependency graph.
+    def hawkeye_analyze(
+        project_path: str,
+        languages: list[str] | None = None,
+        tsconfig: str = "",
+    ) -> dict[str, object]:
+        """Scan a codebase and build its dependency graph.
 
         Call this first before using any other tool. Scans all .py files,
         resolves imports, detects cycles, and computes coupling metrics.
@@ -91,8 +95,16 @@ def create_mcp_server():
         Args:
             project_path: Absolute path to the project root.
         """
+        from ..config import HawkeyeConfig, LanguageSettings
         from ..engine import HawkeyeEngine
-        engine = HawkeyeEngine()
+        config = HawkeyeConfig()
+        if languages:
+            config.languages = languages
+        if tsconfig:
+            config.language_settings.setdefault(
+                "typescript", LanguageSettings()
+            ).tsconfig = tsconfig
+        engine = HawkeyeEngine(config)
         engine.analyze(project_path)
 
         _analyzed_projects[project_path] = engine
@@ -193,7 +205,8 @@ def create_mcp_server():
             "count": len(matches),
             "modules": [
                 {"module": m, "file": engine.graph.nodes[m].rel_path,
-                 "loc": engine.graph.nodes[m].loc}
+                 "loc": engine.graph.nodes[m].loc,
+                 "language": engine.graph.nodes[m].language}
                 for m in matches[:50]  # Cap for token efficiency
             ],
         }
@@ -251,7 +264,7 @@ def create_mcp_server():
             "sort_by": sort_by,
             "count": len(items),
             "modules": [
-                {"module": m.module_name, "ca": m.ca, "ce": m.ce,
+                {"module": m.module_name, "language": m.language, "ca": m.ca, "ce": m.ce,
                  "instability": m.instability, "loc": m.loc, "health": m.health,
                  "cc": m.cyclomatic_complexity, "cog": m.cognitive_complexity,
                  "classes": m.class_count, "functions": m.function_count}
@@ -370,8 +383,12 @@ def create_mcp_server():
 
         symbols = registry.get_module_symbols(module)
         if not symbols:
-            return {"module": module, "symbols": [],
-                    "message": "No symbols defined in this module."}
+            return {
+                "module": module,
+                "language": engine.graph.nodes[module].language,
+                "symbols": [],
+                "message": "No symbols defined in this module.",
+            }
 
         if symbol:
             symbols = [s for s in symbols if s.id.name == symbol]
@@ -389,6 +406,7 @@ def create_mcp_server():
         return {
             "mode": "impact",
             "module": module,
+            "language": engine.graph.nodes[module].language,
             "symbol_count": len(results),
             "impacts": results,
         }
@@ -420,6 +438,7 @@ def create_mcp_server():
         symbols = registry.get_module_symbols(module)
         return {
             "module": module,
+            "language": engine.graph.nodes[module].language,
             "total_symbols": len(symbols),
             "symbols": [
                 {

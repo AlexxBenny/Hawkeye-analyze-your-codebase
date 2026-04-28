@@ -72,6 +72,24 @@ class TestFromToml:
         assert config.max_hops == 5
         assert config.include_external is True
 
+    def test_loads_language_config(self, tmp_path: Path):
+        toml = tmp_path / "hawkeye.toml"
+        toml.write_text(textwrap.dedent("""\
+            [scan]
+            languages = ["python", "javascript", "typescript"]
+
+            [scan.language.javascript]
+            extensions = [".js", ".jsx"]
+
+            [scan.language.typescript]
+            tsconfig = "tsconfig.json"
+        """), encoding="utf-8")
+
+        config = HawkeyeConfig.from_toml(toml)
+        assert config.languages == ["python", "javascript", "typescript"]
+        assert config.language_settings["javascript"].extensions == [".js", ".jsx"]
+        assert config.language_settings["typescript"].tsconfig == "tsconfig.json"
+
     def test_loads_layer_rules(self, tmp_path: Path):
         toml = tmp_path / "hawkeye.toml"
         toml.write_text(textwrap.dedent("""\
@@ -317,4 +335,3 @@ class TestSemanticConsistency:
 
             assert health == "critical", f"Failed for profile {t.profile}"
             assert "critical" in severities, f"Failed for profile {t.profile}"
-

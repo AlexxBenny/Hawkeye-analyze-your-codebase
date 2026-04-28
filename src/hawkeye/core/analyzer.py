@@ -36,7 +36,7 @@ class ResolvedImport:
 class SymbolInfo:
     """A symbol (class, function, or method) defined in a module."""
     name: str
-    kind: str              # 'class', 'function', or 'method'
+    kind: str              # 'class', 'function', 'method', 'interface', 'type', 'enum'
     line: int
     end_line: int = 0
     method_count: int = 0  # Only for classes: number of methods

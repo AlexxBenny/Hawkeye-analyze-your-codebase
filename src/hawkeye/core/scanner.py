@@ -1,8 +1,8 @@
 """File discovery and module indexing.
 
-Walks a Python project tree, converts file paths to dotted module names,
+Walks a project tree, converts file paths to dotted module names,
 and builds a structured index of all discoverable modules. Handles
-__init__.py packages, namespace packages, and configurable exclusions.
+language-specific module conventions and configurable exclusions.
 """
 
 import fnmatch
@@ -14,13 +14,14 @@ from typing import Optional
 
 @dataclass
 class ModuleInfo:
-    """Metadata about a discovered Python module."""
+    """Metadata about a discovered module."""
     module_name: str       # Dotted module name (e.g. "project.core.engine")
     full_path: str         # Absolute file path
     rel_path: str          # Path relative to project root
     package: str           # Parent package (e.g. "project.core")
     is_package: bool       # True if this is an __init__.py
     loc: int = 0           # Lines of code (populated during analysis)
+    language: str = "python"
 
 
 def _count_lines(file_path: str) -> int:
@@ -73,8 +74,10 @@ def scan_project(
     exclude_dirs: Optional[set[str]] = None,
     exclude_patterns: Optional[list[str]] = None,
     include_patterns: Optional[list[str]] = None,
+    languages: Optional[list[str]] = None,
+    language_settings: Optional[dict[str, "LanguageSettings"]] = None,
 ) -> dict[str, ModuleInfo]:
-    """Scan a Python project and build a module index.
+    """Scan a project and build a module index.
 
     Args:
         root_path: Absolute path to the project root directory.
@@ -86,6 +89,7 @@ def scan_project(
         Dictionary mapping dotted module names to ModuleInfo objects.
     """
     from ..config import DEFAULT_EXCLUDES
+    from ..languages.registry import get_language_adapters
 
     if exclude_dirs is None:
         exclude_dirs = DEFAULT_EXCLUDES
@@ -97,6 +101,12 @@ def scan_project(
     root = Path(root_path).resolve()
     project_name = root.name
     file_index: dict[str, ModuleInfo] = {}
+    adapters = get_language_adapters(languages, language_settings or {})
+    extension_map = {
+        ext.lower(): adapter
+        for adapter in adapters.values()
+        for ext in adapter.extensions
+    }
 
     for dirpath, dirnames, filenames in os.walk(root):
         # Prune excluded directories in-place
@@ -106,14 +116,15 @@ def scan_project(
         )
 
         for filename in sorted(filenames):
-            if not filename.endswith(".py"):
+            ext = Path(filename).suffix.lower()
+            adapter = extension_map.get(ext)
+            if not adapter:
                 continue
 
             full_path = os.path.join(dirpath, filename)
             rel_path = os.path.relpath(full_path, root).replace("\\", "/")
 
-            module_name_suffix, is_package = _path_to_module(rel_path)
-            module_name = f"{project_name}.{module_name_suffix}" if module_name_suffix else project_name
+            module_name, is_package = adapter.path_to_module(rel_path, project_name)
 
             # Apply filters
             if exclude_patterns and _matches_patterns(module_name, exclude_patterns):
@@ -131,7 +142,8 @@ def scan_project(
                 rel_path=rel_path,
                 package=package,
                 is_package=is_package,
-                loc=_count_lines(full_path),
+                loc=adapter.count_lines(full_path),
+                language=adapter.name,
             )
 
     return file_index
