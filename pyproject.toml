@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hawkeye-analyzer"
-version = "0.2.0"
+version = "0.3.0"
 description = "Architectural intelligence for AI coding agents — one call gives your editor full context before it edits"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,3 +45,9 @@ Issues = "https://github.com/AlexxBenny/Hawkeye-analyze-your-codebase/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["hawkeye*"]
+
+[tool.setuptools.package-data]
+hawkeye = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

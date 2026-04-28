@@ -15,8 +15,7 @@ from .core import (CycleReport, DependencyGraph, ModuleInfo, ModuleMetrics,
                    ProjectMetrics, ResolvedImport, SymbolGraph,
                    SymbolReference, SymbolRegistry, Violation,
                    calculate_module_metrics, calculate_project_metrics,
-                   check_all_rules, classify_risk, derive_module_insights,
-                   detect_cycles, insights_compact, insights_full,
+                   check_all_rules, detect_cycles,
                    resolve_references, scan_project)
 from .core.analyzer import SymbolTable
 from .languages.registry import analyze_project as analyze_languages
@@ -79,8 +78,7 @@ class HawkeyeEngine:
             exclude_dirs=self.config.exclude_dirs,
             exclude_patterns=self.config.exclude_patterns,
             include_patterns=self.config.include_patterns,
-            languages=self.config.languages,
-            language_settings=self.config.language_settings,
+            adapters=self._language_adapters,
         )
 
         # 2. Build path index (file path → module name)
@@ -238,24 +236,26 @@ class HawkeyeEngine:
     def resolve(self, file_or_module: str) -> str | None:
         """Resolve a file path OR module name to a canonical module name.
 
-        Accepts:
+        Accepts (in priority order):
           - Module name: 'MERLIN.cortex.intent_engine'
           - Relative path: 'cortex/intent_engine.py'
+          - Full relative: 'src/MERLIN/cortex/intent_engine.py'
           - Absolute path: 'D:/ALEX/CODING/MERLIN/cortex/intent_engine.py'
           - Windows paths: 'cortex\\intent_engine.py'
+          - Basename: 'intent_engine.py' (returns first unique match)
 
         Returns the module name, or None if not found.
         """
-        # Direct module name match
+        # 1. Direct module name match
         if file_or_module in self.graph.nodes:
             return file_or_module
 
-        # Path-based lookup
+        # 2. Path-based lookup (exact)
         normalized = file_or_module.replace("\\", "/")
         if normalized in self._path_index:
             return self._path_index[normalized]
 
-        # Try stripping project root prefix
+        # 3. Try stripping project root prefix
         if self._project_root:
             root_prefix = self._project_root.replace("\\", "/") + "/"
             if normalized.startswith(root_prefix):
@@ -263,7 +263,7 @@ class HawkeyeEngine:
                 if rel in self._path_index:
                     return self._path_index[rel]
 
-        # Fuzzy: try adding .py, removing .py, etc.
+        # 4. Fuzzy extension variants
         variants = [normalized]
         for ext in sorted(self._known_extensions or {".py"}):
             variants.append(normalized + ext)
@@ -272,6 +272,31 @@ class HawkeyeEngine:
         for variant in variants:
             if variant in self._path_index:
                 return self._path_index[variant]
+
+        # 5. Suffix match: AI agents often pass workspace-relative paths
+        #    like "src/hawkeye/core/analyzer.py" when project root is
+        #    "src/hawkeye" — try matching the suffix of each indexed path.
+        for indexed_path, module_name in self._path_index.items():
+            if normalized.endswith("/" + indexed_path) or normalized.endswith("\\" + indexed_path):
+                return module_name
+
+        # 6. Basename match: "analyzer.py" → look for unique match
+        basename = normalized.rsplit("/", 1)[-1]
+        if basename != normalized:  # only if we actually extracted a basename
+            matches = [
+                mod for path, mod in self._path_index.items()
+                if path.endswith("/" + basename) or path == basename
+            ]
+            if len(set(matches)) == 1:
+                return matches[0]
+        else:
+            # Input itself is a basename like "analyzer.py"
+            matches = [
+                mod for path, mod in self._path_index.items()
+                if path.endswith("/" + basename) or path == basename
+            ]
+            if len(set(matches)) == 1:
+                return matches[0]
 
         return None
 
@@ -290,148 +315,21 @@ class HawkeyeEngine:
         Returns:
             Complete context dict, or None if not found.
         """
+        from .context import build_file_context
+
         module = self.resolve(file_or_module)
         if module is None:
             return None
 
-        node = self.graph.nodes[module]
-        m = self.module_metrics.get(module)
-
-        # Dependencies (what this module imports)
-        deps = []
-        for dep in sorted(self.graph.get_dependencies(module)):
-            edge = self.graph.edges.get((module, dep))
-            dep_node = self.graph.nodes.get(dep)
-            entry: dict = {"module": dep}
-            if dep_node:
-                entry["file"] = dep_node.rel_path
-                entry["language"] = dep_node.language
-            if edge and edge.is_cycle_member:
-                entry["is_cycle"] = True
-            if not compact and edge:
-                entry["import_count"] = edge.import_count
-                entry["lines"] = edge.lines
-            deps.append(entry)
-
-        # Dependents (what imports this module)
-        dependents = []
-        for dep in sorted(self.graph.get_dependents(module)):
-            dep_node = self.graph.nodes.get(dep)
-            entry = {"module": dep}
-            if dep_node:
-                entry["file"] = dep_node.rel_path
-                entry["language"] = dep_node.language
-            dependents.append(entry)
-
-        # Transitive impact
-        transitive = self.graph.get_transitive_dependents(module)
-
-        # Cycles involving this module
-        cycles = []
-        for c in self.cycle_report.cycles:
-            if module in c.path[:-1]:  # path repeats first node at end
-                cycles.append(c.path)
-
-        # Related files: cycle partners + shared-dependency neighbors
-        related = self._compute_related(module)
-
-        result: dict = {
-            "module": module,
-            "language": node.language,
-            "file": node.rel_path,
-            "loc": node.loc,
-            "package": node.package,
-            "threshold_profile": self.config.thresholds.profile,
-            "dependencies": deps,
-            "dependency_count": len(deps),
-            "dependents": dependents,
-            "dependent_count": len(dependents),
-            "impact": {
-                "direct": len(dependents),
-                "transitive": len(transitive),
-            },
-        }
-
-        if m:
-            metrics_dict = {
-                "ca": m.ca, "ce": m.ce,
-                "instability": m.instability,
-                "health": m.health,
-                "cyclomatic_complexity": m.cyclomatic_complexity,
-                "cognitive_complexity": m.cognitive_complexity,
-                "classes": m.class_count,
-                "functions": m.function_count,
-                "methods": m.method_count,
-            }
-            if m.parse_error:
-                metrics_dict["parse_error"] = True
-            result["metrics"] = metrics_dict
-
-        if cycles:
-            result["cycles"] = [
-                {"path": c, "severity": cyc.severity, "break_at": cyc.break_suggestion}
-                for c in cycles
-                for cyc in self.cycle_report.cycles
-                if cyc.path == c
-            ] if not compact else cycles
-
-        # Symbol details (non-compact mode)
-        st = self._symbol_tables.get(module)
-        if st and not compact:
-            result["symbols"] = {
-                "classes": [{"name": s.name, "line": s.line, "methods": s.method_count, "complexity": s.complexity} for s in st.classes],
-                "functions": [{"name": s.name, "line": s.line, "complexity": s.complexity} for s in st.functions],
-            }
-
-        if related:
-            result["related_files"] = related
-
-        # ── Layer 2: Deterministic insights ────────────────
-        transitive = self.graph.get_transitive_dependents(module)
-        cycle_modules = [
-            c for c in self.cycle_report.cycles
-            if module in c.path[:-1]
-        ]
-        t = self.config.thresholds
-        insights = derive_module_insights(
-            instability=m.instability if m else 0.0,
-            ca=m.ca if m else 0,
-            ce=m.ce if m else 0,
-            cyclomatic=m.cyclomatic_complexity if m else 1,
-            cognitive=m.cognitive_complexity if m else 0,
-            loc=node.loc,
-            direct_dependents=len(dependents),
-            transitive_dependents=len(transitive),
-            cycle_count=len(cycle_modules),
-            max_cycle_size=max((len(c.path) - 1 for c in cycle_modules), default=0),
-            abstractness=m.abstractness if m else 0.0,
-            distance_main_seq=m.distance_main_seq if m else 0.0,
-            class_count=m.class_count if m else 0,
-            parse_error=m.parse_error if m else False,
-            thresholds=t,
+        return build_file_context(
+            module=module,
+            graph=self.graph,
+            module_metrics=self.module_metrics,
+            cycle_report=self.cycle_report,
+            symbol_tables=self._symbol_tables,
+            config=self.config,
+            compact=compact,
         )
-        if insights:
-            result["insights"] = (
-                insights_compact(insights) if compact
-                else insights_full(insights)
-            )
-
-        # Risk profile: single self-describing label (1 token)
-        risk = classify_risk(
-            instability=m.instability if m else 0.0,
-            ca=m.ca if m else 0,
-            ce=m.ce if m else 0,
-            cyclomatic=m.cyclomatic_complexity if m else 1,
-            cognitive=m.cognitive_complexity if m else 0,
-            direct_dependents=len(dependents),
-            transitive_dependents=len(transitive),
-            cycle_count=len(cycle_modules),
-            thresholds=t,
-        )
-        if risk:
-            result["risk"] = risk
-
-        return result
 
     def get_batch_context(self, files: list[str], compact: bool = True) -> dict:
         """Get combined context for multiple files being edited together.
@@ -439,84 +337,19 @@ class HawkeyeEngine:
         Returns a unified briefing with shared dependencies, combined
         blast radius, and cross-file warnings.
         """
-        modules = []
-        not_found = []
-        for f in files:
-            m = self.resolve(f)
-            if m:
-                modules.append(m)
-            else:
-                not_found.append(f)
+        from .context import build_batch_context
 
-        if not modules:
-            return {"error": "No matching modules found.", "not_found": not_found}
-
-        # Individual contexts (compact)
-        file_contexts = []
-        all_deps: set[str] = set()
-        all_dependents: set[str] = set()
-        all_transitive: set[str] = set()
-
-        for module in modules:
-            ctx = self.get_file_context(module, compact=compact)
-            if ctx:
-                file_contexts.append({
-                    "module": ctx["module"],
-                    "language": ctx.get("language", "python"),
-                    "file": ctx["file"],
-                    "health": ctx.get("metrics", {}).get("health", "unknown"),
-                    "dependency_count": ctx["dependency_count"],
-                    "dependent_count": ctx["dependent_count"],
-                })
-                all_deps |= self.graph.get_dependencies(module)
-                all_dependents |= self.graph.get_dependents(module)
-                all_transitive |= self.graph.get_transitive_dependents(module)
-
-        # Remove the files themselves from impact counts
-        module_set = set(modules)
-        all_deps -= module_set
-        all_dependents -= module_set
-        all_transitive -= module_set
-
-        # Shared dependencies (deps imported by 2+ of the files)
-        if len(modules) > 1:
-            dep_counts: dict[str, int] = {}
-            for module in modules:
-                for dep in self.graph.get_dependencies(module):
-                    dep_counts[dep] = dep_counts.get(dep, 0) + 1
-            shared = sorted(d for d, c in dep_counts.items() if c > 1)
-        else:
-            shared = []
-
-        # Cycle warnings
-        cycle_warnings = []
-        for c in self.cycle_report.cycles:
-            cycle_modules = set(c.path[:-1])
-            if cycle_modules & module_set:
-                cycle_warnings.append(c.path)
-
-        # Architecture violations involving these modules
-        violations = [
-            str(v) for v in self.violations
-            if v.source in module_set or v.target in module_set
-        ]
-
-        result: dict = {
-            "files": file_contexts,
-            "combined_blast_radius": len(all_transitive),
-            "shared_dependencies": shared,
-            "total_unique_dependencies": len(all_deps),
-            "total_unique_dependents": len(all_dependents),
-        }
-
-        if cycle_warnings:
-            result["cycle_warnings"] = cycle_warnings
-        if violations:
-            result["violations"] = violations
-        if not_found:
-            result["not_found"] = not_found
-
-        return result
+        return build_batch_context(
+            files=files,
+            resolve_fn=self.resolve,
+            graph=self.graph,
+            cycle_report=self.cycle_report,
+            violations=self.violations,
+            module_metrics=self.module_metrics,
+            symbol_tables=self._symbol_tables,
+            config=self.config,
+            compact=compact,
+        )
 
     # ── Query Methods ──────────────────────────────────────────
 
@@ -536,32 +369,3 @@ class HawkeyeEngine:
         tgt = self.resolve(target) or target
         return self.graph.find_path(src, tgt)
 
-    # ── Internal Helpers ───────────────────────────────────────
-
-    def _compute_related(self, module: str, limit: int = 8) -> list[dict]:
-        """Find files related to a module (cycle partners, frequent co-deps)."""
-        related: dict[str, str] = {}  # module -> reason
-
-        # Cycle partners
-        for c in self.cycle_report.cycles:
-            if module in c.path[:-1]:
-                for m in c.path[:-1]:
-                    if m != module and m not in related:
-                        related[m] = "cycle partner"
-
-        # Modules that share many of the same dependents (co-imported)
-        my_dependents = self.graph.get_dependents(module)
-        if my_dependents:
-            for dep in self.graph.get_dependencies(module):
-                dep_dependents = self.graph.get_dependents(dep)
-                overlap = my_dependents & dep_dependents
-                if len(overlap) > 1 and dep not in related:
-                    related[dep] = "shared dependency"
-
-        result = []
-        for m, reason in list(related.items())[:limit]:
-            node = self.graph.nodes.get(m)
-            if node:
-                result.append({"file": node.rel_path, "module": m, "reason": reason})
-
-        return result

@@ -284,14 +284,33 @@ class HawkeyeConfig:
 
     @classmethod
     def find_and_load(cls, start_dir: Path) -> "HawkeyeConfig":
-        """Search for hawkeye.toml walking up from start_dir."""
+        """Search for hawkeye.toml walking up from start_dir.
+
+        Also loads .hawkeyeignore if present — a gitignore-style file
+        where each non-blank, non-comment line is an exclude pattern.
+        """
         current = start_dir.resolve()
+        config = cls()
         while True:
             config_path = current / "hawkeye.toml"
             if config_path.exists():
-                return cls.from_toml(config_path)
+                config = cls.from_toml(config_path)
+                break
             parent = current.parent
             if parent == current:
                 break
             current = parent
-        return cls()
+
+        # Merge .hawkeyeignore patterns (searched from start_dir)
+        ignore_path = start_dir.resolve() / ".hawkeyeignore"
+        if ignore_path.exists():
+            try:
+                lines = ignore_path.read_text(encoding="utf-8").splitlines()
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#"):
+                        config.exclude_patterns.append(stripped)
+            except OSError:
+                pass
+
+        return config

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .analyzer import ResolvedImport
-from .scanner import ModuleInfo
+from .models import ModuleInfo
 
 
 @dataclass
@@ -21,6 +21,8 @@ class EdgeInfo:
     import_count: int = 1
     lines: list[int] = field(default_factory=list)
     is_cycle_member: bool = False
+    is_type_only: bool = False   # ALL imports on this edge are TYPE_CHECKING
+    is_deferred: bool = False    # ALL imports on this edge are lazy (in function body)
 
 
 @dataclass
@@ -83,15 +85,24 @@ class DependencyGraph:
 
                 edge_key = (source, target)
                 lines = [d.line for d in imp.details]
+                all_type_checking = all(d.is_type_checking for d in imp.details)
+                all_deferred = all(d.is_deferred for d in imp.details)
+
                 if edge_key in graph.edges:
-                    graph.edges[edge_key].import_count += len(imp.details)
-                    graph.edges[edge_key].lines.extend(lines)
+                    edge = graph.edges[edge_key]
+                    edge.import_count += len(imp.details)
+                    edge.lines.extend(lines)
+                    # Edge is type_only only if ALL details so far are type-checking
+                    edge.is_type_only = edge.is_type_only and all_type_checking
+                    edge.is_deferred = edge.is_deferred and all_deferred
                 else:
                     graph.edges[edge_key] = EdgeInfo(
                         source=source,
                         target=target,
                         import_count=len(imp.details),
                         lines=lines,
+                        is_type_only=all_type_checking,
+                        is_deferred=all_deferred,
                     )
 
         return graph

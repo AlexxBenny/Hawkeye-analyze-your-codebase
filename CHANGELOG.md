@@ -5,6 +5,38 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-28
+
+### ⚠️ Breaking Changes
+- **`ModuleInfo` moved**: Canonical import is now `from hawkeye.core.models import ModuleInfo`. The old import `from hawkeye.core.scanner import ModuleInfo` still works (re-exported) but is deprecated.
+- **CLI is now a package**: `hawkeye.cli` changed from a single module to a subpackage (`cli/__init__.py`, `cli/commands.py`, `cli/_helpers.py`). The public entry point `hawkeye.cli:main` is unchanged.
+
+### Added
+- **`core/models.py`**: Zero-dependency leaf module containing `ModuleInfo`, `count_lines`, and `path_to_module`. This is the most-depended-on module (Ca=7) with near-zero instability (I=0.125), by design.
+- **`context.py`**: Stateless context builder extracted from the engine. Pure functions (`build_file_context`, `build_batch_context`, `compute_related`) that accept explicit data dependencies — independently testable.
+- **Import classification**: Imports are now classified as `runtime`, `type_only` (inside `TYPE_CHECKING` blocks), or `deferred` (inside function bodies). Cycle detection uses this to distinguish safe vs dangerous cycles.
+- **Cycle kind field**: Each detected cycle now carries a `kind` field (`runtime`, `type_only`, `deferred`). A cycle is "safe" only if **every** edge is non-runtime.
+- **`py.typed` marker**: PEP 561 compliance — added to `pyproject.toml` package-data so type checkers recognize Hawkeye as a typed package.
+- **`__all__` exports**: Added to `hawkeye/__init__.py` and `core/__init__.py` for clean star-import control.
+- **`cli/__main__.py`**: Enables `python -m hawkeye.cli` execution.
+
+### Fixed
+- **29 import cycles eliminated → 0**: Root cause was `ModuleInfo` living inside `scanner.py` (the cycle hub, participating in all 29 cycles). Extracting it to `models.py` broke every cycle chain.
+- **Python adapter cycle**: Changed `python/adapter.py` from top-level `from ...core import analyzer` to a deferred import inside `analyze_project()`, eliminating the adapter→core→scanner→registry→adapter chain.
+- **JS/TS regex masking bug**: Fixed a bug that cleared target imports before analysis in JavaScript/TypeScript files.
+
+### Changed
+- **Engine decomposition**: `engine.py` reduced from 582 → 345 LOC (-41%), CC from 99 → 36 (-64%), Cog from 177 → 66 (-63%). Context-building logic delegated to `context.py`.
+- **CLI split**: `cli.py` (623 LOC monolith) → `cli/` subpackage (4 files, 547 LOC total). Parser in `__init__.py`, 7 command handlers in `commands.py`, shared helpers in `_helpers.py`.
+- **Scanner slimmed**: `scanner.py` reduced from 173 → 94 LOC. `ModuleInfo`, `count_lines`, and `path_to_module` moved to `models.py`; scanner re-exports for backward compatibility.
+- **Canonical Tarjan**: Consolidated two separate SCC implementations into one in `core/cycles.py`. Removed the duplicate from `core/rules.py`.
+- **JS/TS shared code**: Consolidated ~120 lines of duplicate regex patterns and `extract_block` logic into `languages/shared/js_ts_common.py`.
+
+### Performance
+- **285 tests** passing (was 278 in v0.2.0, +7 import classification tests).
+- **0 import cycles** in Hawkeye's own codebase (was 29 in v0.2.0).
+- **37 modules**, 5,591 LOC, graph density 0.0833.
+
 ## [0.2.0] - 2026-04-28
 
 ### ⚠️ Breaking Changes

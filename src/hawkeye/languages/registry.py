@@ -62,7 +62,7 @@ def analyze_project(
 
     if TYPE_CHECKING:  # pragma: no cover - typing only
         from ..core.analyzer import ResolvedImport, SymbolTable
-        from ..core.scanner import ModuleInfo
+        from ..core.models import ModuleInfo
 
     imports: dict[str, list["ResolvedImport"]] = {}
     symbols: dict[str, "SymbolTable"] = {}

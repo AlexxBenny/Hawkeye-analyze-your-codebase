@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 class ModuleMetrics:
     """Computed metrics for a single module."""
     module_name: str
-    language: str = "python"
     ca: int             # Afferent coupling — modules that depend on this one
     ce: int             # Efferent coupling — modules this one depends on
     instability: float  # I = Ce / (Ca + Ce), 0=stable, 1=unstable
@@ -25,6 +24,8 @@ class ModuleMetrics:
     fan_in: int         # Same as Ca (incoming edges)
     fan_out: int        # Same as Ce (outgoing edges)
     health: str         # "healthy", "moderate", "elevated", "high", "critical", "unknown"
+    # Language (default: python for backward compatibility)
+    language: str = "python"
     # Symbol counts
     class_count: int = 0
     function_count: int = 0

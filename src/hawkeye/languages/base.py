@@ -8,7 +8,7 @@ from ..config import LanguageSettings
 
 if TYPE_CHECKING:
     from ..core.analyzer import ResolvedImport, SymbolTable
-    from ..core.scanner import ModuleInfo
+    from ..core.models import ModuleInfo
 
 
 class LanguageAdapter:

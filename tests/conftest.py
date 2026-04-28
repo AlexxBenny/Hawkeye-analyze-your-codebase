@@ -13,7 +13,7 @@ import pytest
 from hawkeye.core.analyzer import (ImportDetail, ResolvedImport, SymbolInfo,
                                    SymbolTable)
 from hawkeye.core.graph import DependencyGraph, EdgeInfo, NodeInfo
-from hawkeye.core.scanner import ModuleInfo
+from hawkeye.core.models import ModuleInfo
 
 # ── Temporary project fixtures ─────────────────────────────────
 
@@ -229,6 +229,12 @@ def mixed_project(tmp_path: Path) -> Path:
         }
 
         export function add(a, b) {
+            return a + b;
+        }
+    ''')
+
+    _write_ts(root, "src/utils/math.ts", '''\
+        export function add(a: number, b: number): number {
             return a + b;
         }
     ''')

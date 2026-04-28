@@ -10,22 +10,21 @@ from pathlib import Path
 
 from ..base import LanguageAdapter
 from ..shared.js_ts_common import (
+    ARROW_RE,
+    CLASS_RE,
+    FUNCTION_RE,
     compute_cognitive,
     compute_cyclomatic,
     count_js_loc,
+    extract_block,
     extract_imports,
     mask_js_source,
     strip_js_comments,
 )
 from ...core.analyzer import ImportDetail, ResolvedImport, SymbolInfo, SymbolTable
 
-
-_CLASS_RE = re.compile(r"\bclass\s+([A-Za-z_$][\w$]*)")
-_FUNCTION_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)")
-_ARROW_RE = re.compile(
-    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;]*?=>"
-)
-_METHOD_RE = re.compile(
+# TS extends the shared METHOD_RE with `readonly` keyword
+_TS_METHOD_RE = re.compile(
     r"(?m)^\s*(?:public|private|protected|static|async|get|set|readonly)?\s*"
     r"([A-Za-z_$][\w$]*)\s*\("
 )
@@ -226,11 +225,11 @@ class TypeScriptAdapter(LanguageAdapter):
         total_methods = 0
         abstract_count = 0
 
-        for match in _CLASS_RE.finditer(masked):
+        for match in CLASS_RE.finditer(masked):
             name = match.group(1)
             line = source.count("\n", 0, match.start()) + 1
-            body = _extract_block(masked, source, match.end())
-            method_names = _METHOD_RE.findall(body)
+            body = extract_block(masked, source, match.end())
+            method_names = _TS_METHOD_RE.findall(body)
             method_count = len(method_names)
             total_methods += method_count
             classes.append(SymbolInfo(
@@ -292,10 +291,10 @@ class TypeScriptAdapter(LanguageAdapter):
                 is_abstract=False,
             ))
 
-        for match in _FUNCTION_RE.finditer(masked):
+        for match in FUNCTION_RE.finditer(masked):
             name = match.group(1)
             line = source.count("\n", 0, match.start()) + 1
-            body = _extract_block(masked, source, match.end())
+            body = extract_block(masked, source, match.end())
             functions.append(SymbolInfo(
                 name=name,
                 kind="function",
@@ -304,7 +303,7 @@ class TypeScriptAdapter(LanguageAdapter):
                 complexity=compute_cyclomatic(body) if body else 1,
             ))
 
-        for match in _ARROW_RE.finditer(masked):
+        for match in ARROW_RE.finditer(masked):
             name = match.group(1)
             line = source.count("\n", 0, match.start()) + 1
             functions.append(SymbolInfo(
@@ -341,18 +340,3 @@ def _match_alias(spec: str, alias: str) -> tuple[str, str, bool]:
         return prefix, suffix, False
     return prefix, suffix, True
 
-
-def _extract_block(masked_source: str, raw_source: str, start: int) -> str:
-    brace_start = masked_source.find("{", start)
-    if brace_start == -1:
-        return ""
-    depth = 0
-    for idx in range(brace_start, len(masked_source)):
-        ch = masked_source[idx]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return raw_source[brace_start + 1:idx]
-    return ""

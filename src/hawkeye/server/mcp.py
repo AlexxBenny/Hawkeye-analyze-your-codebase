@@ -68,14 +68,15 @@ def create_mcp_server():
     mcp = FastMCP(
         "hawkeye",
         instructions=(
-            "Hawkeye analyzes multi-language codebase architecture. Workflow:\n"
+            "Hawkeye analyzes Python/JS/TS codebase architecture. Workflow:\n"
             "1. hawkeye_analyze(project_path) — scan the project (do this first)\n"
             "2. hawkeye_file_context(file) — get full context before editing a file\n"
-            "3. hawkeye_context(files) — get combined context for multiple files\n"
-            "4. hawkeye_impact(file, symbol) — symbol-level blast radius analysis\n"
-            "5. hawkeye_symbols(file) — list all symbols defined in a module\n"
-            "Other tools: hawkeye_find, hawkeye_cycles, hawkeye_metrics, "
-            "hawkeye_path, hawkeye_graph"
+            "3. hawkeye_context(files) — combined context for multi-file edits\n"
+            "4. hawkeye_impact(file, symbol) — symbol-level blast radius\n"
+            "5. hawkeye_symbols(file) — list symbols defined in a module\n"
+            "Other: hawkeye_find, hawkeye_cycles, hawkeye_metrics, hawkeye_path\n"
+            "AVOID hawkeye_graph on large projects — use hawkeye_file_context instead.\n"
+            "TIP: All context tools default to compact=True for token efficiency."
         ),
     )
 
@@ -89,11 +90,14 @@ def create_mcp_server():
     ) -> dict[str, object]:
         """Scan a codebase and build its dependency graph.
 
-        Call this first before using any other tool. Scans all .py files,
-        resolves imports, detects cycles, and computes coupling metrics.
+        Call this first before using any other tool. Scans Python, JavaScript,
+        and TypeScript files, resolves imports, detects cycles, and computes
+        coupling metrics.
 
         Args:
             project_path: Absolute path to the project root.
+            languages: Languages to enable (default: ['python']). Options: 'python', 'javascript', 'typescript'.
+            tsconfig: Optional path to tsconfig.json for TypeScript path alias resolution.
         """
         from ..config import HawkeyeConfig, LanguageSettings
         from ..engine import HawkeyeEngine
@@ -129,6 +133,12 @@ def create_mcp_server():
                 "critical": pm.modules_critical,
                 "unknown": pm.modules_unknown,
             },
+            "runtime_cycles": len([
+                c for c in engine.cycle_report.cycles if c.kind == "runtime"
+            ]),
+            "safe_cycles": len([
+                c for c in engine.cycle_report.cycles if c.kind != "runtime"
+            ]),
         }
 
     # ── 2. File Context (THE key tool) ─────────────────────────
@@ -137,6 +147,7 @@ def create_mcp_server():
     def hawkeye_file_context(
         file: str,
         compact: bool = True,
+        min_severity: str = "",
         project_path: str = "",
     ) -> dict[str, object]:
         """Get everything about a file before editing it — in ONE call.
@@ -151,6 +162,8 @@ def create_mcp_server():
             file: File path (e.g. 'cortex/intent_engine.py') or
                   module name (e.g. 'MERLIN.cortex.intent_engine').
             compact: If True (default), trim verbose fields for token efficiency.
+            min_severity: Filter insights by minimum severity: 'info', 'warning',
+                          or 'critical'. Default '' returns all insights.
             project_path: Optional project path if multiple are loaded.
         """
         engine = _resolve_engine(project_path)
@@ -162,6 +175,17 @@ def create_mcp_server():
                 "suggestions": matches[:8],
                 "hint": "Try a file path relative to project root, or a dotted module name.",
             }
+
+        # Filter insights by severity if requested
+        if min_severity and "insights" in result:
+            severity_order = {"info": 0, "warning": 1, "critical": 2}
+            min_level = severity_order.get(min_severity, 0)
+            from ..core.insights import INSIGHT_SEVERITY
+            result["insights"] = [
+                i for i in result["insights"]
+                if severity_order.get(INSIGHT_SEVERITY.get(i, "info"), 0) >= min_level
+            ]
+
         return result
 
     # ── 3. Batch Context (multi-file) ──────────────────────────
@@ -222,12 +246,17 @@ def create_mcp_server():
         """
         engine = _resolve_engine(project_path)
         cr = engine.cycle_report
+        runtime_cycles = [c for c in cr.cycles if c.kind == "runtime"]
+        safe_cycles = [c for c in cr.cycles if c.kind != "runtime"]
         return {
             "has_cycles": cr.has_cycles,
             "count": cr.cycle_count,
+            "runtime_count": len(runtime_cycles),
+            "safe_count": len(safe_cycles),
             "cycles": [
                 {"path": c.path, "length": c.length,
-                 "severity": c.severity, "break_at": c.break_suggestion}
+                 "severity": c.severity, "kind": c.kind,
+                 "break_at": c.break_suggestion}
                 for c in cr.cycles
             ],
             "participation": cr.participation,
@@ -304,22 +333,40 @@ def create_mcp_server():
     ) -> dict[str, object]:
         """Get the full dependency graph as structured JSON.
 
-        WARNING: Large output. Prefer hawkeye_file_context for targeted queries.
+        WARNING: Large output — can overwhelm AI context windows.
+        Prefer hawkeye_file_context for targeted queries.
+        On projects with 50+ modules, set max_depth=2 to limit output.
 
         Args:
-            max_depth: If > 0, collapse modules deeper than this.
+            max_depth: If > 0, collapse modules deeper than this. Recommended: 2.
             project_path: Optional project path.
         """
         engine = _resolve_engine(project_path)
         graph = engine.graph
+
+        # Auto-cap large projects to prevent context window blowout
+        node_count = len(graph.nodes)
+        auto_capped = False
+        if max_depth == 0 and node_count > 80:
+            max_depth = 2
+            auto_capped = True
+
         if max_depth > 0:
             graph = graph.filtered(max_depth=max_depth)
 
         from ..visualizer.json_renderer import render_json
-        return json.loads(render_json(
+        result = json.loads(render_json(
             graph, engine.module_metrics,
             engine.project_metrics, engine.cycle_report,
         ))
+
+        if auto_capped:
+            result["_warning"] = (
+                f"Output auto-capped to max_depth=2 ({node_count} modules). "
+                f"Use hawkeye_file_context for targeted queries."
+            )
+
+        return result
 
     # ── 9. Symbol Impact ──────────────────────────────────────
 

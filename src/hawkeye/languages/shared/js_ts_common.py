@@ -1,9 +1,33 @@
-"""Shared JS/TS parsing utilities (zero dependencies)."""
+"""Shared JS/TS parsing utilities (zero dependencies).
+
+Centralises all parsing logic that is identical between JS and TS adapters:
+- Comment/string masking
+- Import extraction
+- Symbol-detection regexes (class, function, arrow, method)
+- Block extraction (brace matching)
+- Cyclomatic & cognitive complexity
+"""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+
+
+# ── Shared symbol-detection regexes ────────────────────────────
+# Used by both JavaScriptAdapter._extract_symbols and
+# TypeScriptAdapter._extract_symbols.  TS adapter adds its own
+# _INTERFACE_RE, _TYPE_RE, _ENUM_RE on top of these.
+
+CLASS_RE = re.compile(r"\bclass\s+([A-Za-z_$][\w$]*)")
+FUNCTION_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)")
+ARROW_RE = re.compile(
+    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;]*?=>"
+)
+METHOD_RE = re.compile(
+    r"(?m)^\s*(?:public|private|protected|static|async|get|set)?\s*"
+    r"([A-Za-z_$][\w$]*)\s*\("
+)
 
 
 @dataclass(frozen=True)
@@ -175,41 +199,60 @@ def count_js_loc(source: str) -> int:
 
 
 def extract_imports(source: str) -> list[JSImport]:
-    """Extract import/export/require statements from masked source."""
+    """Extract import/export/require statements from JS/TS source.
+
+    Regexes run on the original source to capture string specifiers.
+    The masked source is used only to verify keyword positions aren't
+    inside comments or string literals.
+    """
     masked = mask_js_source(source)
     imports: list[JSImport] = []
+
+    def _in_code(pos: int) -> bool:
+        """Check the keyword at *pos* isn't inside a comment or string."""
+        return masked[pos: pos + 1].strip() != ""
 
     def add_match(spec: str, idx: int, names: list[str], is_from_import: bool) -> None:
         imports.append(
             JSImport(
                 specifier=spec,
-                line=_line_for_index(masked, idx),
+                line=_line_for_index(source, idx),
                 imported_names=names,
                 is_from_import=is_from_import,
             )
         )
 
-    for match in _IMPORT_FROM_RE.finditer(masked):
+    for match in _IMPORT_FROM_RE.finditer(source):
+        if not _in_code(match.start()):
+            continue
         spec = match.group("spec")
         clause = match.group("clause")
         names = _parse_import_clause(clause)
         add_match(spec, match.start(), names, True)
 
-    for match in _EXPORT_FROM_RE.finditer(masked):
+    for match in _EXPORT_FROM_RE.finditer(source):
+        if not _in_code(match.start()):
+            continue
         spec = match.group("spec")
         clause = match.group("clause")
         names = _parse_import_clause(clause)
         add_match(spec, match.start(), names, True)
 
-    for match in _IMPORT_SIDE_RE.finditer(masked):
+    for match in _IMPORT_SIDE_RE.finditer(source):
+        if not _in_code(match.start()):
+            continue
         spec = match.group("spec")
         add_match(spec, match.start(), ["*"], False)
 
-    for match in _DYNAMIC_IMPORT_RE.finditer(masked):
+    for match in _DYNAMIC_IMPORT_RE.finditer(source):
+        if not _in_code(match.start()):
+            continue
         spec = match.group("spec")
         add_match(spec, match.start(), ["*"], False)
 
-    for match in _REQUIRE_RE.finditer(masked):
+    for match in _REQUIRE_RE.finditer(source):
+        if not _in_code(match.start()):
+            continue
         spec = match.group("spec")
         add_match(spec, match.start(), ["*"], False)
 
@@ -279,3 +322,24 @@ def compute_cognitive(source: str) -> int:
             continue
         total += 1 + nesting
     return total
+
+
+def extract_block(masked_source: str, raw_source: str, start: int) -> str:
+    """Extract body content between matching braces starting from *start*.
+
+    Uses the masked source for brace matching (to ignore braces inside
+    strings/comments) and returns the body text from the raw source.
+    """
+    brace_start = masked_source.find("{", start)
+    if brace_start == -1:
+        return ""
+    depth = 0
+    for idx in range(brace_start, len(masked_source)):
+        ch = masked_source[idx]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw_source[brace_start + 1:idx]
+    return ""

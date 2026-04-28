@@ -12,7 +12,7 @@ import ast
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .scanner import ModuleInfo
+from .models import ModuleInfo
 
 
 @dataclass
@@ -21,6 +21,8 @@ class ImportDetail:
     imported_name: str     # The specific name imported (e.g. "MyClass")
     line: int              # Source line number
     is_from_import: bool   # True for 'from X import Y', False for 'import X'
+    is_type_checking: bool = False  # True if inside `if TYPE_CHECKING:` block
+    is_deferred: bool = False       # True if inside a function body (lazy import)
 
 
 @dataclass
@@ -233,69 +235,142 @@ def _extract_imports(
     project_name: str,
     file_index: dict[str, "ModuleInfo"],
 ) -> list[ResolvedImport]:
-    """Extract and resolve all imports from a parsed AST."""
+    """Extract and resolve all imports from a parsed AST.
+
+    Classifies each import as:
+    - type_checking: inside an `if TYPE_CHECKING:` block (safe cycle)
+    - deferred: inside a function body (lazy import, safe at import-time)
+    - runtime: top-level import (actual runtime dependency)
+    """
     raw_imports: dict[str, list[ImportDetail]] = {}
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                raw_imports.setdefault(alias.name, []).append(
-                    ImportDetail(
-                        imported_name=alias.name,
-                        line=node.lineno,
-                        is_from_import=False,
+    # Pre-compute which top-level If nodes are TYPE_CHECKING guards
+    type_checking_nodes: set[int] = set()
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.If) and _is_type_checking_guard(node):
+            type_checking_nodes.add(id(node))
+
+    def _collect_import_nodes(
+        nodes: list[ast.AST],
+        *,
+        is_type_checking: bool = False,
+        is_deferred: bool = False,
+    ) -> None:
+        """Recursively collect imports, tracking context."""
+        for node in nodes:
+            # Detect TYPE_CHECKING guard
+            if isinstance(node, ast.If) and id(node) in type_checking_nodes:
+                _collect_import_nodes(
+                    node.body, is_type_checking=True, is_deferred=is_deferred,
+                )
+                continue
+
+            # Detect function body → deferred imports
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _collect_import_nodes(
+                    node.body, is_type_checking=is_type_checking, is_deferred=True,
+                )
+                continue
+
+            # Detect class body → check for TYPE_CHECKING and nested functions
+            if isinstance(node, ast.ClassDef):
+                _collect_import_nodes(
+                    node.body, is_type_checking=is_type_checking, is_deferred=is_deferred,
+                )
+                continue
+
+            # Non-top-level If/Try blocks → recurse into body
+            if isinstance(node, ast.If):
+                _collect_import_nodes(
+                    node.body, is_type_checking=is_type_checking, is_deferred=is_deferred,
+                )
+                if node.orelse:
+                    _collect_import_nodes(
+                        node.orelse, is_type_checking=is_type_checking, is_deferred=is_deferred,
                     )
+                continue
+
+            if isinstance(node, ast.Try):
+                _collect_import_nodes(
+                    node.body, is_type_checking=is_type_checking, is_deferred=is_deferred,
                 )
+                for handler in node.handlers:
+                    _collect_import_nodes(
+                        handler.body, is_type_checking=is_type_checking, is_deferred=is_deferred,
+                    )
+                continue
 
-        elif isinstance(node, ast.ImportFrom):
-            level = node.level or 0
-            base_module = node.module or ""
-
-            if level > 0:
-                resolved_base = _resolve_relative_import(
-                    module_info.module_name,
-                    module_info.is_package,
-                    level,
-                    base_module or None,
-                )
-                if resolved_base is None:
-                    continue
-
+            if isinstance(node, ast.Import):
                 for alias in node.names:
-                    full_candidate = f"{resolved_base}.{alias.name}"
-                    raw_imports.setdefault(full_candidate, []).append(
+                    raw_imports.setdefault(alias.name, []).append(
                         ImportDetail(
                             imported_name=alias.name,
                             line=node.lineno,
-                            is_from_import=True,
+                            is_from_import=False,
+                            is_type_checking=is_type_checking,
+                            is_deferred=is_deferred,
                         )
                     )
-                    if resolved_base not in raw_imports:
-                        raw_imports.setdefault(resolved_base, []).append(
+
+            elif isinstance(node, ast.ImportFrom):
+                level = node.level or 0
+                base_module = node.module or ""
+
+                if level > 0:
+                    resolved_base = _resolve_relative_import(
+                        module_info.module_name,
+                        module_info.is_package,
+                        level,
+                        base_module or None,
+                    )
+                    if resolved_base is None:
+                        continue
+
+                    for alias in node.names:
+                        full_candidate = f"{resolved_base}.{alias.name}"
+                        raw_imports.setdefault(full_candidate, []).append(
                             ImportDetail(
                                 imported_name=alias.name,
                                 line=node.lineno,
                                 is_from_import=True,
+                                is_type_checking=is_type_checking,
+                                is_deferred=is_deferred,
                             )
                         )
-            else:
-                for alias in node.names:
-                    full_path = f"{base_module}.{alias.name}" if base_module else alias.name
-                    raw_imports.setdefault(full_path, []).append(
-                        ImportDetail(
-                            imported_name=alias.name,
-                            line=node.lineno,
-                            is_from_import=True,
+                        if resolved_base not in raw_imports:
+                            raw_imports.setdefault(resolved_base, []).append(
+                                ImportDetail(
+                                    imported_name=alias.name,
+                                    line=node.lineno,
+                                    is_from_import=True,
+                                    is_type_checking=is_type_checking,
+                                    is_deferred=is_deferred,
+                                )
+                            )
+                else:
+                    for alias in node.names:
+                        full_path = f"{base_module}.{alias.name}" if base_module else alias.name
+                        raw_imports.setdefault(full_path, []).append(
+                            ImportDetail(
+                                imported_name=alias.name,
+                                line=node.lineno,
+                                is_from_import=True,
+                                is_type_checking=is_type_checking,
+                                is_deferred=is_deferred,
+                            )
                         )
-                    )
-                if base_module and base_module not in raw_imports:
-                    raw_imports.setdefault(base_module, []).append(
-                        ImportDetail(
-                            imported_name=base_module,
-                            line=node.lineno,
-                            is_from_import=True,
+                    if base_module and base_module not in raw_imports:
+                        raw_imports.setdefault(base_module, []).append(
+                            ImportDetail(
+                                imported_name=base_module,
+                                line=node.lineno,
+                                is_from_import=True,
+                                is_type_checking=is_type_checking,
+                                is_deferred=is_deferred,
+                            )
                         )
-                    )
+
+    _collect_import_nodes(tree.body)
 
     # Resolve to internal modules
     resolved: dict[str, ResolvedImport] = {}
@@ -313,6 +388,18 @@ def _extract_imports(
                 )
 
     return list(resolved.values())
+
+
+def _is_type_checking_guard(node: ast.If) -> bool:
+    """Check if an `if` node is a `if TYPE_CHECKING:` guard."""
+    test = node.test
+    # `if TYPE_CHECKING:`
+    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+        return True
+    # `if typing.TYPE_CHECKING:`
+    if isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING":
+        return True
+    return False
 
 
 # ── Abstract class detection ──────────────────────────────────

@@ -86,7 +86,38 @@ class Insight:
         }
 
 
-# ── Derivation functions ─────────────────────────────────────
+# ── Insight code → severity mapping ──────────────────────────
+# Used by MCP tools for severity filtering. Maps each insight code
+# to its typical/maximum severity level.
+
+INSIGHT_SEVERITY: dict[str, str] = {
+    # Critical
+    "extreme_cyclomatic": "critical",
+    "extreme_cognitive": "critical",
+    "critical_blast_radius": "critical",
+    "in_cycle": "critical",
+    "parse_failed": "critical",
+    # Warning
+    "high_instability": "warning",
+    "high_efferent": "warning",
+    "high_afferent": "warning",
+    "high_cyclomatic": "warning",
+    "high_cognitive": "warning",
+    "high_blast_radius": "warning",
+    "very_large_module": "warning",
+    "large_module": "warning",
+    "zone_of_pain": "warning",
+    "zone_of_uselessness": "warning",
+    # Info
+    "highly_stable": "info",
+    "well_balanced": "info",
+    "isolated": "info",
+    "high_fan_out": "info",
+    "wide_transitive_reach": "info",
+}
+
+
+
 # Each function examines ONE metric dimension and returns
 # zero or more insights. Pure functions, no side effects.
 # All thresholds come from ThresholdConfig — zero hardcoded numbers.

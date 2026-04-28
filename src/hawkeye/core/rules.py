@@ -16,6 +16,8 @@ import fnmatch
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .cycles import tarjan_sccs
+
 if TYPE_CHECKING:
     from ..config import AcyclicSiblingsConfig, ProtectedConfig, RulesConfig
     from .graph import DependencyGraph
@@ -308,8 +310,8 @@ def check_acyclic_siblings_rules(
                     if dep_sibling != sibling and dep_sibling in sibling_map:
                         sibling_adj[sibling].add(dep_sibling)
 
-        # Find SCCs using iterative Tarjan's
-        sccs = _tarjan_sccs(sibling_adj)
+        # Find SCCs using canonical Tarjan's from cycles module
+        sccs = tarjan_sccs(sibling_adj, min_size=2)
         for scc in sccs:
             if len(scc) > 1:
                 cycle_str = " → ".join(sorted(scc))
@@ -329,45 +331,6 @@ def check_acyclic_siblings_rules(
 
     return violations
 
-
-def _tarjan_sccs(adj: dict[str, set[str]]) -> list[list[str]]:
-    """Find strongly connected components using iterative Tarjan's algorithm."""
-    index_counter = [0]
-    stack: list[str] = []
-    on_stack: set[str] = set()
-    index: dict[str, int] = {}
-    lowlink: dict[str, int] = {}
-    result: list[list[str]] = []
-
-    def strongconnect(v: str) -> None:
-        index[v] = index_counter[0]
-        lowlink[v] = index_counter[0]
-        index_counter[0] += 1
-        stack.append(v)
-        on_stack.add(v)
-
-        for w in adj.get(v, set()):
-            if w not in index:
-                strongconnect(w)
-                lowlink[v] = min(lowlink[v], lowlink[w])
-            elif w in on_stack:
-                lowlink[v] = min(lowlink[v], index[w])
-
-        if lowlink[v] == index[v]:
-            scc: list[str] = []
-            while True:
-                w = stack.pop()
-                on_stack.discard(w)
-                scc.append(w)
-                if w == v:
-                    break
-            result.append(scc)
-
-    for v in adj:
-        if v not in index:
-            strongconnect(v)
-
-    return result
 
 
 # ── Orchestrator ──────────────────────────────────────────────
