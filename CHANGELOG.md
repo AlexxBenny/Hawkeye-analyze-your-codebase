@@ -5,6 +5,26 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-28
+
+### Added
+- **Framework-aware unused symbol detection**: Symbols decorated with known framework entry point decorators are no longer falsely reported as "unused" by `hawkeye impact --unused` or `hawkeye_impact(mode="unused")`. This eliminates false positives for FastAPI routes, pytest fixtures, Celery tasks, Flask endpoints, Django admin, Click commands, and more.
+- **Decorator extraction**: `SymbolInfo` now carries a `decorators: list[str]` field populated during AST parsing. Handles `@decorator`, `@module.decorator`, and `@app.get("/path")` call patterns.
+- **`DEFAULT_FRAMEWORK_DECORATORS`**: Built-in registry of 30+ decorator patterns covering pytest, FastAPI/Starlette, Flask, Django, Celery, Click, SQLAlchemy, dataclass, and standard library decorators (`property`, `staticmethod`, `classmethod`, `abstractmethod`).
+- **Configurable framework decorators**: New `framework_entry_decorators` field on `HawkeyeConfig`. TOML configuration via `[scan.framework_decorators]` with `add` (merge with defaults) and `replace` (override defaults) modes.
+- **MCP output enhancements**: `hawkeye_symbols` now includes decorator lists per symbol. `hawkeye_impact(mode="unused")` adds a `framework_filtered` flag indicating whether framework detection is active.
+- **22 new tests** in `test_framework_detection.py` covering decorator extraction, framework matching, unused filtering, config loading, and integration with real AST parsing.
+
+### Changed
+- **`SymbolGraph.unused_symbols()`**: Now accepts an optional `framework_decorators` parameter. Backward-compatible — `None` preserves original behavior.
+- **CLI `impact --unused`**: Passes framework decorator config from engine settings.
+- **MCP `hawkeye_impact(mode="unused")`**: Passes framework decorator config from engine settings.
+
+### Performance
+- **307 tests** passing (was 285 in v0.3.0, +22 framework detection tests).
+- **0 import cycles** in Hawkeye's own codebase (maintained from v0.3.0).
+- **60 modules**, 8,744 LOC.
+
 ## [0.3.0] - 2026-04-28
 
 ### ⚠️ Breaking Changes

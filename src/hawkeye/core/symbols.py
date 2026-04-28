@@ -211,6 +211,25 @@ def resolve_references(
     return refs
 
 
+# ── Framework entry point detection ──────────────────────────
+
+
+def _is_framework_entry(
+    info: SymbolInfo,
+    patterns: frozenset[str],
+) -> bool:
+    """Check if a symbol is a framework-managed entry point.
+
+    Uses substring matching: a decorator "app.get" matches pattern
+    "app.get", and "myapp.router.get" matches pattern "router.get".
+    """
+    for dec in info.decorators:
+        for pattern in patterns:
+            if pattern in dec:
+                return True
+    return False
+
+
 # ── Symbol graph ──────────────────────────────────────────────
 
 
@@ -309,16 +328,33 @@ class SymbolGraph:
             reverse=True,
         )
 
-    def unused_symbols(self, registry: SymbolRegistry) -> list[SymbolId]:
+    def unused_symbols(
+        self,
+        registry: SymbolRegistry,
+        framework_decorators: frozenset[str] | None = None,
+    ) -> list[SymbolId]:
         """Find symbols that are defined but never imported.
 
-        Excludes __init__.py module-level code and private names.
+        Excludes __init__.py module-level code, private names, and
+        symbols decorated with known framework entry point decorators
+        (e.g., @app.get, @pytest.fixture, @celery_app.task).
+
+        Args:
+            registry: The project symbol registry.
+            framework_decorators: Decorator patterns that mark framework
+                entry points. A symbol is considered framework-used if
+                any of its decorators contains any pattern as a substring.
         """
         unused = []
         for sid in registry._by_id:
             if sid.name.startswith("_"):
                 continue
             if self.usage_count(sid) == 0:
+                # Check framework decorators before reporting as unused
+                if framework_decorators:
+                    defn = registry.get_by_id(sid)
+                    if defn and _is_framework_entry(defn.info, framework_decorators):
+                        continue
                 unused.append(sid)
         return unused
 

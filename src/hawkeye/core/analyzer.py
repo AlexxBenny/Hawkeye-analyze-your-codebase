@@ -44,6 +44,7 @@ class SymbolInfo:
     method_count: int = 0  # Only for classes: number of methods
     complexity: int = 1    # Cyclomatic complexity of this symbol
     is_abstract: bool = False  # ABC, Protocol, or has @abstractmethod
+    decorators: list[str] = field(default_factory=list)  # Decorator names on this symbol
 
 
 @dataclass
@@ -453,6 +454,35 @@ def _is_abstract_class(node: ast.ClassDef) -> bool:
     return False
 
 
+def _extract_decorator_names(node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """Extract human-readable decorator names from a decorated node.
+
+    Handles common patterns:
+      - @decorator           → 'decorator'
+      - @module.decorator     → 'module.decorator'
+      - @app.get("/path")    → 'app.get'
+      - @router.post("/x")   → 'router.post'
+    """
+    names: list[str] = []
+    for dec in node.decorator_list:
+        name = _decorator_name(dec)
+        if name:
+            names.append(name)
+    return names
+
+
+def _decorator_name(node: ast.expr) -> str | None:
+    """Resolve a single decorator AST node to a dotted name string."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _decorator_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    if isinstance(node, ast.Call):
+        return _decorator_name(node.func)
+    return None
+
+
 def _extract_symbols(tree: ast.Module) -> SymbolTable:
     """Extract class/function definitions and complexity from a parsed AST."""
     classes: list[SymbolInfo] = []
@@ -479,6 +509,7 @@ def _extract_symbols(tree: ast.Module) -> SymbolTable:
                 method_count=len(methods),
                 complexity=_cyclomatic_complexity(node),
                 is_abstract=is_abstract,
+                decorators=_extract_decorator_names(node),
             ))
             # Extract per-method entries for function breakdown
             for method_node in methods:
@@ -488,6 +519,7 @@ def _extract_symbols(tree: ast.Module) -> SymbolTable:
                     line=method_node.lineno,
                     end_line=getattr(method_node, 'end_lineno', method_node.lineno),
                     complexity=_cyclomatic_complexity(method_node),
+                    decorators=_extract_decorator_names(method_node),
                 ))
 
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -497,6 +529,7 @@ def _extract_symbols(tree: ast.Module) -> SymbolTable:
                 line=node.lineno,
                 end_line=getattr(node, 'end_lineno', node.lineno),
                 complexity=_cyclomatic_complexity(node),
+                decorators=_extract_decorator_names(node),
             ))
 
     # Module-level complexity

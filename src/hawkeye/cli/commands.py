@@ -184,7 +184,8 @@ def run_impact(args) -> int:
 
     # ── Unused mode ──
     if args.unused:
-        unused = sg.unused_symbols(registry)
+        fw_decorators = engine.config.framework_entry_decorators
+        unused = sg.unused_symbols(registry, framework_decorators=fw_decorators)
         if args.json:
             print(json_mod.dumps(
                 [{"symbol": str(sid), "module": sid.module} for sid in unused],

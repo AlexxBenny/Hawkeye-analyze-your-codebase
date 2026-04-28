@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hawkeye-analyzer"
-version = "0.3.0"
+version = "0.4.0"
 description = "Architectural intelligence for AI coding agents — one call gives your editor full context before it edits"
 readme = "README.md"
 requires-python = ">=3.10"

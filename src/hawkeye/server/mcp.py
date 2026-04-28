@@ -411,10 +411,12 @@ def create_mcp_server():
             }
 
         if mode == "unused":
-            unused = sg.unused_symbols(registry)
+            fw_decorators = engine.config.framework_entry_decorators
+            unused = sg.unused_symbols(registry, framework_decorators=fw_decorators)
             return {
                 "mode": "unused",
                 "count": len(unused),
+                "framework_filtered": bool(fw_decorators),
                 "symbols": [
                     {"symbol": str(sid), "module": sid.module,
                      "name": sid.name, "kind": sid.kind}
@@ -496,6 +498,7 @@ def create_mcp_server():
                     "complexity": s.info.complexity,
                     "usage_count": sg.usage_count(s.id),
                 }
+                | ({"decorators": s.info.decorators} if s.info.decorators else {})
                 for s in symbols
             ],
         }

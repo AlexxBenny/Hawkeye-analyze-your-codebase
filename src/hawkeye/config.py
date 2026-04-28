@@ -24,6 +24,37 @@ DEFAULT_EXCLUDES = {
     "site-packages", "egg-info",
 }
 
+# ── Framework entry point detection ───────────────────────────
+# Symbols decorated with these are framework-managed entry points,
+# not dead code. Substring matching: "app.get" matches @app.get("/...").
+
+DEFAULT_FRAMEWORK_DECORATORS: frozenset[str] = frozenset({
+    # pytest
+    "pytest.fixture", "fixture",
+    "pytest.mark",
+    # FastAPI / Starlette
+    "app.get", "app.post", "app.put", "app.patch", "app.delete",
+    "app.websocket", "app.middleware", "app.on_event",
+    "router.get", "router.post", "router.put", "router.patch",
+    "router.delete", "router.websocket",
+    # Flask
+    "app.route", "app.before_request", "app.after_request",
+    "app.errorhandler", "bp.route",
+    # Django
+    "admin.register", "receiver",
+    # Celery
+    "celery_app.task", "app.task", "shared_task",
+    # Click CLI
+    "click.command", "click.group", "cli.command", "cli.group",
+    # SQLAlchemy / Alembic event listeners
+    "event.listens_for",
+    # General patterns
+    "staticmethod", "classmethod", "property",
+    "abstractmethod",
+    # Dataclass / attrs
+    "dataclass", "attrs",
+})
+
 
 # ── Threshold Configuration ───────────────────────────────────
 
@@ -203,6 +234,9 @@ class HawkeyeConfig:
     output_file: Optional[str] = None
     rules: RulesConfig = field(default_factory=RulesConfig)
     thresholds: ThresholdConfig = field(default_factory=ThresholdConfig)
+    framework_entry_decorators: frozenset[str] = field(
+        default_factory=lambda: DEFAULT_FRAMEWORK_DECORATORS,
+    )
 
     @classmethod
     def from_toml(cls, path: Path) -> "HawkeyeConfig":
@@ -279,6 +313,22 @@ class HawkeyeConfig:
         thresholds_data = data.get("thresholds", {})
         if thresholds_data:
             config.thresholds = ThresholdConfig.from_dict(thresholds_data)
+
+        # Framework entry decorators (merge with defaults by default)
+        fw_data = scan.get("framework_decorators", {})
+        if isinstance(fw_data, list):
+            # Simple list → merge with defaults
+            config.framework_entry_decorators = (
+                DEFAULT_FRAMEWORK_DECORATORS | frozenset(fw_data)
+            )
+        elif isinstance(fw_data, dict):
+            extra = frozenset(fw_data.get("add", []))
+            if fw_data.get("replace", False):
+                config.framework_entry_decorators = extra
+            else:
+                config.framework_entry_decorators = (
+                    DEFAULT_FRAMEWORK_DECORATORS | extra
+                )
 
         return config
 

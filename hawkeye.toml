@@ -28,6 +28,15 @@ exclude_dirs = [
 # extensions = [".ts", ".tsx"]
 # tsconfig = "tsconfig.json"
 
+# Framework entry point detection — decorators listed here mark symbols
+# as framework-managed (excluded from "unused" detection). The defaults
+# cover pytest, FastAPI, Flask, Django, Celery, Click, and more.
+# Add your own project-specific patterns:
+#
+# [scan.framework_decorators]
+# add = ["my_framework.endpoint", "register_handler"]
+# replace = false    # set true to fully override defaults
+
 [analysis]
 # max_depth = 3             # Collapse modules deeper than this
 # max_hops = 5              # Filter modules beyond N hops from root

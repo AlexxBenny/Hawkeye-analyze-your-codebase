@@ -5,7 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/hawkeye-analyzer.svg)](https://pypi.org/project/hawkeye-analyzer/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-285%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-307%20passed-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)]()
 
 ---
@@ -161,8 +161,8 @@ After calling `hawkeye_analyze(project_path)` once, all other tools are availabl
 |------|---------|-------------|
 | **`hawkeye_file_context(file)`** | Everything about a file — deps, dependents, impact, cycles, health, insights, risk. Supports `min_severity` filter. | **Before editing any file** |
 | `hawkeye_context(files)` | Combined context for multi-file edits — shared deps, combined blast radius | Before editing 2+ related files |
-| `hawkeye_impact(file, symbol)` | Symbol-level blast radius — who uses `class Engine`? | Before renaming/refactoring a class or function |
-| `hawkeye_symbols(file)` | List all classes/functions with usage counts | Understanding what a module exports |
+| `hawkeye_impact(file, symbol)` | Symbol-level blast radius, hotspots, or unused detection (framework-aware) | Before renaming/refactoring a class or function |
+| `hawkeye_symbols(file)` | List all classes/functions with usage counts and decorators | Understanding what a module exports |
 | `hawkeye_find(pattern)` | Search modules by name | Discovering module names |
 | `hawkeye_cycles()` | All import cycles with severity, kind, and break suggestions | Checking for circular dependencies |
 | `hawkeye_metrics(sort_by, limit)` | Coupling + complexity table for all modules | Finding the riskiest modules |
@@ -267,7 +267,7 @@ hawkeye context ./myproject src/engine.py
 |---------|---------|
 | `hawkeye analyze` | `--format text` (default), `json`, `html`, `dot` |
 | `hawkeye metrics` | text (default), `--json`, `--functions` |
-| `hawkeye impact` | text (default), `--json`, `--hotspots`, `--unused` |
+| `hawkeye impact` | text (default), `--json`, `--hotspots`, `--unused` (framework-aware) |
 | `hawkeye context` | JSON only (designed for machine consumption) |
 
 ---
@@ -330,6 +330,18 @@ allowed_importers = ["auth.*"]
 ancestor = "services"
 ```
 
+### Framework Detection
+
+Hawkeye automatically detects framework entry points — symbols decorated with `@app.get()`, `@pytest.fixture`, `@celery_app.task`, etc. These are excluded from unused symbol detection to eliminate false positives.
+
+The built-in registry covers **pytest, FastAPI, Flask, Django, Celery, Click, SQLAlchemy**, and standard library decorators. Add project-specific patterns in your TOML config:
+
+```toml
+[scan.framework_decorators]
+add = ["my_framework.endpoint", "register_handler"]  # merged with defaults
+# replace = true    # set true to fully override defaults
+```
+
 ### Threshold Tuning
 
 All 18 thresholds are configurable. Choose a profile, then override individual values:
@@ -386,7 +398,7 @@ Source files (Py/JS/TS) → Language-specific parsing → Import resolution → 
                          ↓                                        ↓
                   Symbol-level impact              Coupling metrics (Ca/Ce/I/A/D)
                   Hotspot detection                Complexity metrics (CC/Cog)
-                  Dead code detection              Cycle detection (Tarjan's SCC)
+                  Dead code detection (fw-aware)   Cycle detection (Tarjan's SCC)
                                                    Import classification
                                                    Health classification
                                                    Insight derivation
@@ -458,7 +470,7 @@ src/hawkeye/
     └── json_renderer.py    # Structured JSON
 ```
 
-37 modules, 5,591 LOC, 0 import cycles. 285 tests across 11 test files. Zero required dependencies. Python 3.10+.
+60 modules, 8,744 LOC, 0 import cycles. 307 tests across 12 test files. Zero required dependencies. Python 3.10+.
 
 ## License
 
