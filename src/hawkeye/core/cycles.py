@@ -13,11 +13,21 @@ if TYPE_CHECKING:
 
 @dataclass
 class Cycle:
-    """A single import cycle."""
+    """A single import cycle.
+
+    The ``kind`` field classifies the cycle:
+    - ``runtime``:   At least one edge is a hard, top-level import.
+                     These cycles can cause ImportError at startup.
+    - ``type_only``: ALL edges live inside ``if TYPE_CHECKING:`` blocks.
+                     These are intentional and safe — Python never executes them.
+    - ``deferred``:  ALL edges are lazy imports inside function bodies.
+                     Safe at import-time but may fail at call-time.
+    """
     path: list[str]    # Module names forming the cycle (first == last)
     length: int = 0
     severity: str = "low"          # 'low', 'medium', 'high', 'critical'
     break_suggestion: str = ""     # Which edge to cut
+    kind: str = "runtime"          # 'runtime', 'type_only', 'deferred'
 
     def __post_init__(self) -> None:
         self.length = len(self.path) - 1
@@ -38,8 +48,24 @@ class CycleReport:
         return len(self.cycles)
 
 
-def _find_sccs(graph: "DependencyGraph") -> list[list[str]]:
-    """Find all strongly connected components using Tarjan's algorithm."""
+def tarjan_sccs(
+    adj: dict[str, set[str]],
+    *,
+    min_size: int = 1,
+) -> list[list[str]]:
+    """Find strongly connected components using Tarjan's algorithm.
+
+    This is the canonical, reusable SCC implementation for the project.
+    Both cycle detection and rule enforcement use this function.
+
+    Args:
+        adj: Adjacency dict mapping node → set of neighbors.
+        min_size: Only return SCCs with at least this many nodes.
+                  Use 2 to filter out trivial self-loops.
+
+    Returns:
+        List of SCCs, each being a list of node names.
+    """
     index_counter = [0]
     stack: list[str] = []
     on_stack: set[str] = set()
@@ -54,8 +80,8 @@ def _find_sccs(graph: "DependencyGraph") -> list[list[str]]:
         stack.append(node)
         on_stack.add(node)
 
-        for neighbor in graph.adjacency.get(node, set()):
-            if neighbor not in graph.nodes:
+        for neighbor in adj.get(node, set()):
+            if neighbor not in adj:
                 continue
             if neighbor not in indices:
                 strongconnect(neighbor)
@@ -71,22 +97,34 @@ def _find_sccs(graph: "DependencyGraph") -> list[list[str]]:
                 scc.append(w)
                 if w == node:
                     break
-            if len(scc) > 1:
+            if len(scc) >= min_size:
                 sccs.append(scc)
 
     # Increase recursion limit for large projects
     import sys
     old_limit = sys.getrecursionlimit()
-    sys.setrecursionlimit(max(old_limit, len(graph.nodes) * 2 + 1000))
+    sys.setrecursionlimit(max(old_limit, len(adj) * 2 + 1000))
 
     try:
-        for node in graph.nodes:
+        for node in adj:
             if node not in indices:
                 strongconnect(node)
     finally:
         sys.setrecursionlimit(old_limit)
 
     return sccs
+
+
+def _find_sccs(graph: "DependencyGraph") -> list[list[str]]:
+    """Find SCCs in a DependencyGraph (wrapper around tarjan_sccs)."""
+    # Build adjacency dict scoped to known nodes
+    adj: dict[str, set[str]] = {}
+    for node in graph.nodes:
+        adj[node] = {
+            n for n in graph.adjacency.get(node, set())
+            if n in graph.nodes
+        }
+    return tarjan_sccs(adj, min_size=2)
 
 
 def _extract_cycles_from_scc(
@@ -170,13 +208,46 @@ def _suggest_break(
 
     cycle.break_suggestion = best_edge
 
+def _classify_cycle_kind(
+    cycle: Cycle,
+    graph: "DependencyGraph",
+) -> None:
+    """Classify a cycle as runtime, type_only, or deferred.
+
+    A cycle is safe (type_only/deferred) only if EVERY edge in the cycle
+    is non-runtime. If even one edge is a hard runtime import, the whole
+    cycle is classified as 'runtime'.
+    """
+    all_type_only = True
+    all_deferred = True
+
+    for i in range(len(cycle.path) - 1):
+        edge_key = (cycle.path[i], cycle.path[i + 1])
+        edge = graph.edges.get(edge_key)
+        if edge is None:
+            # Unknown edge — treat as runtime (conservative)
+            all_type_only = False
+            all_deferred = False
+            break
+        if not edge.is_type_only:
+            all_type_only = False
+        if not edge.is_deferred:
+            all_deferred = False
+
+    if all_type_only:
+        cycle.kind = "type_only"
+    elif all_deferred:
+        cycle.kind = "deferred"
+    else:
+        cycle.kind = "runtime"
+
 
 def detect_cycles(graph: "DependencyGraph") -> CycleReport:
     """Detect all import cycles with severity ranking and break suggestions.
 
     Uses Tarjan's SCC algorithm to find strongly connected components,
-    then extracts individual cycles, scores their severity, and suggests
-    which edge to cut to break each cycle.
+    then extracts individual cycles, scores their severity, classifies
+    them as runtime/type_only/deferred, and suggests which edge to cut.
     """
     sccs = _find_sccs(graph)
 
@@ -188,6 +259,7 @@ def detect_cycles(graph: "DependencyGraph") -> CycleReport:
         for cycle in cycles:
             _score_severity(cycle, graph)
             _suggest_break(cycle, graph)
+            _classify_cycle_kind(cycle, graph)
         all_cycles.extend(cycles)
 
         for cycle in cycles:
@@ -201,9 +273,14 @@ def detect_cycles(graph: "DependencyGraph") -> CycleReport:
             if edge_key in graph.edges:
                 graph.edges[edge_key].is_cycle_member = True
 
-    # Sort by severity (critical first), then length
+    # Sort: runtime first, then by severity (critical first), then length
+    kind_order = {"runtime": 0, "deferred": 1, "type_only": 2}
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    all_cycles.sort(key=lambda c: (severity_order.get(c.severity, 4), c.length))
+    all_cycles.sort(key=lambda c: (
+        kind_order.get(c.kind, 0),
+        severity_order.get(c.severity, 4),
+        c.length,
+    ))
 
     return CycleReport(
         cycles=all_cycles,

@@ -172,6 +172,17 @@ class RulesConfig:
     acyclic_siblings: list[AcyclicSiblingsConfig] = field(default_factory=list)
 
 
+# ── Language Configuration ──────────────────────────────────────
+
+
+@dataclass
+class LanguageSettings:
+    """Per-language scan settings."""
+    extensions: list[str] = field(default_factory=list)
+    tsconfig: Optional[str] = None
+    package_root: Optional[str] = None
+
+
 # ── Main Configuration ─────────────────────────────────────────
 
 
@@ -183,6 +194,8 @@ class HawkeyeConfig:
     exclude_dirs: set[str] = field(default_factory=lambda: DEFAULT_EXCLUDES.copy())
     exclude_patterns: list[str] = field(default_factory=list)
     include_patterns: list[str] = field(default_factory=list)
+    languages: list[str] = field(default_factory=lambda: ["python"])
+    language_settings: dict[str, LanguageSettings] = field(default_factory=dict)
     max_depth: Optional[int] = None
     max_hops: Optional[int] = None
     include_external: bool = False
@@ -216,6 +229,18 @@ class HawkeyeConfig:
             config.exclude_patterns = scan["exclude_patterns"]
         if "include_patterns" in scan:
             config.include_patterns = scan["include_patterns"]
+        if "languages" in scan:
+            config.languages = list(scan["languages"])
+        language_cfg = scan.get("language", {})
+        if isinstance(language_cfg, dict):
+            for lang, settings in language_cfg.items():
+                if not isinstance(settings, dict):
+                    continue
+                config.language_settings[lang] = LanguageSettings(
+                    extensions=list(settings.get("extensions", [])),
+                    tsconfig=settings.get("tsconfig"),
+                    package_root=settings.get("package_root"),
+                )
 
         analysis = data.get("analysis", {})
         config.max_depth = analysis.get("max_depth")
@@ -259,14 +284,33 @@ class HawkeyeConfig:
 
     @classmethod
     def find_and_load(cls, start_dir: Path) -> "HawkeyeConfig":
-        """Search for hawkeye.toml walking up from start_dir."""
+        """Search for hawkeye.toml walking up from start_dir.
+
+        Also loads .hawkeyeignore if present — a gitignore-style file
+        where each non-blank, non-comment line is an exclude pattern.
+        """
         current = start_dir.resolve()
+        config = cls()
         while True:
             config_path = current / "hawkeye.toml"
             if config_path.exists():
-                return cls.from_toml(config_path)
+                config = cls.from_toml(config_path)
+                break
             parent = current.parent
             if parent == current:
                 break
             current = parent
-        return cls()
+
+        # Merge .hawkeyeignore patterns (searched from start_dir)
+        ignore_path = start_dir.resolve() / ".hawkeyeignore"
+        if ignore_path.exists():
+            try:
+                lines = ignore_path.read_text(encoding="utf-8").splitlines()
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#"):
+                        config.exclude_patterns.append(stripped)
+            except OSError:
+                pass
+
+        return config

@@ -24,6 +24,8 @@ class ModuleMetrics:
     fan_in: int         # Same as Ca (incoming edges)
     fan_out: int        # Same as Ce (outgoing edges)
     health: str         # "healthy", "moderate", "elevated", "high", "critical", "unknown"
+    # Language (default: python for backward compatibility)
+    language: str = "python"
     # Symbol counts
     class_count: int = 0
     function_count: int = 0
@@ -49,6 +51,7 @@ class ModuleMetrics:
         """Single canonical serialization. ALL renderers use this."""
         d = {
             "module": self.module_name,
+            "language": self.language,
             "ca": self.ca,
             "ce": self.ce,
             "instability": self.instability,
@@ -181,6 +184,7 @@ def calculate_module_metrics(
 
         results[module_name] = ModuleMetrics(
             module_name=module_name,
+            language=node.language,
             ca=ca,
             ce=ce,
             instability=round(instability, 3),

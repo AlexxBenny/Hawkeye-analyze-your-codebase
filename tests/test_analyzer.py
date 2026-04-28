@@ -8,7 +8,7 @@ from hawkeye.core.analyzer import (ResolvedImport, SymbolInfo, SymbolTable,
                                    _cyclomatic_complexity, _normalize_import,
                                    _resolve_relative_import, analyze_file,
                                    analyze_file_full, analyze_project)
-from hawkeye.core.scanner import ModuleInfo
+from hawkeye.core.models import ModuleInfo
 
 # ── Relative import resolution ────────────────────────────────
 
@@ -267,3 +267,176 @@ class TestAnalyzeProject:
         assert imports[bad_key] == []
         assert symbols[bad_key].class_count == 0
         assert symbols[bad_key].parse_error is True
+
+
+# ── TYPE_CHECKING / Deferred import classification ──────────────
+
+
+class TestImportClassification:
+    """Tests for TYPE_CHECKING and deferred (lazy) import detection."""
+
+    def test_type_checking_import_flagged(self, tmp_path):
+        """Imports inside `if TYPE_CHECKING:` should have is_type_checking=True."""
+        root = tmp_path / "tc_project"
+        root.mkdir()
+        (root / "alpha.py").write_text(textwrap.dedent("""\
+            from __future__ import annotations
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                from .beta import BetaClass
+            def greet(): pass
+        """), encoding="utf-8")
+        (root / "beta.py").write_text("class BetaClass: pass\n", encoding="utf-8")
+
+        from hawkeye.core.scanner import scan_project
+        index = scan_project(str(root))
+        project_name = root.name
+        imports, _ = analyze_project(index, project_name)
+
+        alpha_key = [k for k in imports if "alpha" in k][0]
+        assert len(imports[alpha_key]) > 0
+        for imp in imports[alpha_key]:
+            for d in imp.details:
+                assert d.is_type_checking is True
+                assert d.is_deferred is False
+
+    def test_typing_dot_type_checking_detected(self, tmp_path):
+        """Also supports `if typing.TYPE_CHECKING:` style guard."""
+        root = tmp_path / "tc2_project"
+        root.mkdir()
+        (root / "alpha.py").write_text(textwrap.dedent("""\
+            import typing
+            if typing.TYPE_CHECKING:
+                from .beta import B
+        """), encoding="utf-8")
+        (root / "beta.py").write_text("class B: pass\n", encoding="utf-8")
+
+        from hawkeye.core.scanner import scan_project
+        index = scan_project(str(root))
+        imports, _ = analyze_project(index, root.name)
+
+        alpha_key = [k for k in imports if "alpha" in k][0]
+        for imp in imports[alpha_key]:
+            for d in imp.details:
+                assert d.is_type_checking is True
+
+    def test_deferred_import_flagged(self, tmp_path):
+        """Imports inside function bodies should have is_deferred=True."""
+        root = tmp_path / "lazy_project"
+        root.mkdir()
+        (root / "alpha.py").write_text(textwrap.dedent("""\
+            def my_func():
+                from .beta import helper
+                return helper()
+        """), encoding="utf-8")
+        (root / "beta.py").write_text("def helper(): return 42\n", encoding="utf-8")
+
+        from hawkeye.core.scanner import scan_project
+        index = scan_project(str(root))
+        imports, _ = analyze_project(index, root.name)
+
+        alpha_key = [k for k in imports if "alpha" in k][0]
+        assert len(imports[alpha_key]) > 0
+        for imp in imports[alpha_key]:
+            for d in imp.details:
+                assert d.is_deferred is True
+                assert d.is_type_checking is False
+
+    def test_runtime_import_has_no_flags(self, tmp_path):
+        """Top-level imports should have both flags False."""
+        root = tmp_path / "rt_project"
+        root.mkdir()
+        (root / "alpha.py").write_text("from .beta import B\n", encoding="utf-8")
+        (root / "beta.py").write_text("class B: pass\n", encoding="utf-8")
+
+        from hawkeye.core.scanner import scan_project
+        index = scan_project(str(root))
+        imports, _ = analyze_project(index, root.name)
+
+        alpha_key = [k for k in imports if "alpha" in k][0]
+        for imp in imports[alpha_key]:
+            for d in imp.details:
+                assert d.is_type_checking is False
+                assert d.is_deferred is False
+
+    def test_mixed_imports_classified_correctly(self, tmp_path):
+        """A module with runtime, TYPE_CHECKING, and deferred imports."""
+        root = tmp_path / "mix_project"
+        root.mkdir()
+        (root / "alpha.py").write_text(textwrap.dedent("""\
+            from typing import TYPE_CHECKING
+            from .beta import runtime_fn
+            if TYPE_CHECKING:
+                from .gamma import GammaType
+            def load():
+                from .delta import lazy_fn
+                return lazy_fn()
+        """), encoding="utf-8")
+        (root / "beta.py").write_text("def runtime_fn(): pass\n", encoding="utf-8")
+        (root / "gamma.py").write_text("class GammaType: pass\n", encoding="utf-8")
+        (root / "delta.py").write_text("def lazy_fn(): return 1\n", encoding="utf-8")
+
+        from hawkeye.core.scanner import scan_project
+        index = scan_project(str(root))
+        imports, _ = analyze_project(index, root.name)
+
+        alpha_key = [k for k in imports if "alpha" in k][0]
+        resolved = {imp.resolved_module: imp for imp in imports[alpha_key]}
+
+        # beta is a runtime import
+        beta_key = [k for k in resolved if "beta" in k][0]
+        assert all(not d.is_type_checking and not d.is_deferred for d in resolved[beta_key].details)
+
+        # gamma is TYPE_CHECKING
+        gamma_key = [k for k in resolved if "gamma" in k][0]
+        assert all(d.is_type_checking for d in resolved[gamma_key].details)
+
+        # delta is deferred
+        delta_key = [k for k in resolved if "delta" in k][0]
+        assert all(d.is_deferred for d in resolved[delta_key].details)
+
+
+class TestCycleKindClassification:
+    """Tests for cycle kind classification (runtime vs type_only vs deferred)."""
+
+    def test_type_only_cycle_classified(self, tmp_path):
+        """Cycles where ALL edges are TYPE_CHECKING should be 'type_only'."""
+        root = tmp_path / "tc_cycle"
+        root.mkdir()
+        (root / "alpha.py").write_text(textwrap.dedent("""\
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                from .beta import B
+            class A: pass
+        """), encoding="utf-8")
+        (root / "beta.py").write_text(textwrap.dedent("""\
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                from .alpha import A
+            class B: pass
+        """), encoding="utf-8")
+
+        from hawkeye.engine import HawkeyeEngine
+        engine = HawkeyeEngine()
+        engine.analyze(str(root))
+
+        cr = engine.cycle_report
+        if cr.has_cycles:
+            for c in cr.cycles:
+                assert c.kind == "type_only"
+
+    def test_runtime_cycle_classified(self, tmp_path):
+        """Cycles with at least one runtime edge should be 'runtime'."""
+        root = tmp_path / "rt_cycle"
+        root.mkdir()
+        (root / "alpha.py").write_text("from .beta import B\nclass A: pass\n", encoding="utf-8")
+        (root / "beta.py").write_text("from .alpha import A\nclass B: pass\n", encoding="utf-8")
+
+        from hawkeye.engine import HawkeyeEngine
+        engine = HawkeyeEngine()
+        engine.analyze(str(root))
+
+        cr = engine.cycle_report
+        assert cr.has_cycles
+        for c in cr.cycles:
+            assert c.kind == "runtime"

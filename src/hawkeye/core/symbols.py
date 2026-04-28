@@ -31,7 +31,7 @@ class SymbolId:
     """
     module: str
     name: str
-    kind: str  # 'class', 'function', 'method'
+    kind: str  # 'class', 'function', 'method', 'interface', 'type', 'enum'
 
     def __str__(self) -> str:
         return f"{self.module}::{self.name}"

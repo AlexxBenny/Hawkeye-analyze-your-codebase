@@ -5,7 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/hawkeye-analyzer.svg)](https://pypi.org/project/hawkeye-analyzer/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-271%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-285%20passed-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)]()
 
 ---
@@ -120,8 +120,8 @@ Returns everything the agent needs in **one call**:
     "cognitive_complexity": 32
   },
   "insights": ["extreme_cyclomatic", "critical_blast_radius"],
-  "risk_profile": "hub",
-  "in_cycles": false
+  "risk": "hub",
+  "cycles": []
 }
 ```
 
@@ -137,7 +137,7 @@ Hawkeye is built specifically for AI agent consumption:
 | **Token-efficient** | Compact mode (default) strips verbose fields. A healthy module adds ~5 tokens. A problematic one adds ~30. Zero wasted tokens on modules with no issues. |
 | **One-call context** | `hawkeye_file_context` replaces 5+ separate queries. One tool call = full architectural picture. |
 | **Fast** | Single-pass AST parsing. 281 modules analyzed in ~5 seconds. Results cached for the session. |
-| **Zero dependencies** | Core analysis uses Python stdlib only. No transitive dependency hell. Installs in under a second. |
+| **Zero dependencies** | Core analysis uses Python stdlib only (no external parsers). No transitive dependency hell. Installs in under a second. |
 | **Machine-readable** | Every output is structured JSON. Insight codes are enumerated strings, not natural language. Risk profiles are single-token labels. |
 
 ### Token Budget
@@ -159,15 +159,15 @@ After calling `hawkeye_analyze(project_path)` once, all other tools are availabl
 
 | Tool | Purpose | When to use |
 |------|---------|-------------|
-| **`hawkeye_file_context(file)`** | Everything about a file — deps, dependents, impact, cycles, health, insights, risk | **Before editing any file** |
+| **`hawkeye_file_context(file)`** | Everything about a file — deps, dependents, impact, cycles, health, insights, risk. Supports `min_severity` filter. | **Before editing any file** |
 | `hawkeye_context(files)` | Combined context for multi-file edits — shared deps, combined blast radius | Before editing 2+ related files |
 | `hawkeye_impact(file, symbol)` | Symbol-level blast radius — who uses `class Engine`? | Before renaming/refactoring a class or function |
 | `hawkeye_symbols(file)` | List all classes/functions with usage counts | Understanding what a module exports |
 | `hawkeye_find(pattern)` | Search modules by name | Discovering module names |
-| `hawkeye_cycles()` | All import cycles with severity and break suggestions | Checking for circular dependencies |
+| `hawkeye_cycles()` | All import cycles with severity, kind, and break suggestions | Checking for circular dependencies |
 | `hawkeye_metrics(sort_by, limit)` | Coupling + complexity table for all modules | Finding the riskiest modules |
 | `hawkeye_path(source, target)` | Shortest dependency path between two modules | Understanding how modules are connected |
-| `hawkeye_graph(max_depth)` | Full dependency graph as JSON | Structural overview |
+| `hawkeye_graph(max_depth)` | Full dependency graph as JSON (auto-caps at 80+ modules) | Structural overview |
 
 ### Recommended Agent Workflow
 
@@ -222,13 +222,16 @@ Single-token classification of a module's structural role:
 
 ### Health Labels
 
-Three-state composite assessment:
+Five-level composite assessment (monotonic severity):
 
-| Label | Meaning | Thresholds (default profile) |
-|-------|---------|------------------------------|
-| `healthy` | No coupling or complexity concerns | CC < 20, Cog < 25, Ca < 8, Ce < 8 |
-| `warning` | Elevated risk in one dimension | CC ≥ 20 or Cog ≥ 25 or coupling ≥ 8 |
-| `critical` | Multiple risk factors or extreme values | CC ≥ 50 or Cog ≥ 50 or both coupling high |
+| Label | Emoji | Meaning |
+|-------|-------|---------|
+| `healthy` | ✅ | No coupling or complexity concerns |
+| `moderate` | 🟡 | Mild elevation in one dimension |
+| `elevated` | 🟠 | Notable complexity or coupling |
+| `high` | 🔴 | High risk in multiple dimensions |
+| `critical` | 🔥 | Extreme values — needs decomposition |
+| `unknown` | ❓ | File could not be parsed (syntax error) |
 
 ---
 
@@ -273,7 +276,24 @@ hawkeye context ./myproject src/engine.py
 
 Place a `hawkeye.toml` in your project root. Hawkeye auto-discovers it by walking up from the project directory.
 
-### Minimal Setup
+### `.hawkeyeignore`
+
+For quick exclusions without editing TOML, create a `.hawkeyeignore` file in your project root:
+
+```
+# Tests and fixtures
+*.tests.*
+*.test_*
+conftest
+
+# Generated code
+*.generated.*
+*.pb2
+```
+
+Each non-blank, non-comment line is treated as a glob exclude pattern. Patterns are merged with any `exclude_patterns` from `hawkeye.toml`.
+
+### Minimal `hawkeye.toml`
 
 ```toml
 [project]
@@ -360,13 +380,14 @@ The active profile is embedded in JSON output (`threshold_profile` field) for re
 ## How It Works
 
 ```
-Python files → AST parsing (single pass) → Import resolution → Dependency graph
+Source files (Py/JS/TS) → Language-specific parsing → Import resolution → Dependency graph
                                                                       ↓
                     Symbol registry ← Symbol extraction     Graph algorithms
                          ↓                                        ↓
                   Symbol-level impact              Coupling metrics (Ca/Ce/I/A/D)
                   Hotspot detection                Complexity metrics (CC/Cog)
                   Dead code detection              Cycle detection (Tarjan's SCC)
+                                                   Import classification
                                                    Health classification
                                                    Insight derivation
                                                          ↓
@@ -375,6 +396,7 @@ Python files → AST parsing (single pass) → Import resolution → Dependency 
 
 - **Single AST pass** per file — no re-parsing, no multiple traversals
 - **Tarjan's SCC** for cycle detection — O(V+E), mathematically optimal
+- **Import classification** — distinguishes `runtime`, `TYPE_CHECKING`, and `deferred` imports for intelligent cycle triage
 - **BFS reachability** for transitive impact — cached per session
 - **Robert C. Martin's metrics** — Ca, Ce, Instability, Abstractness, Distance
 - **SonarSource spec** for cognitive complexity — nesting-weighted, not just branch counting
@@ -402,18 +424,31 @@ Python files → AST parsing (single pass) → Import resolution → Dependency 
 
 ```
 src/hawkeye/
-├── engine.py           # Central orchestrator — the main API
+├── engine.py           # Central orchestrator (CC=36, 261 LOC)
+├── context.py          # AI context builder (stateless, pure functions)
 ├── config.py           # TOML config with walk-up discovery
-├── cli.py              # 7 CLI commands
+├── cli/                # CLI subpackage
+│   ├── __init__.py     # Parser + main() entry point
+│   ├── commands.py     # 7 command handlers
+│   ├── _helpers.py     # Engine creation + UTF-8 setup
+│   └── __main__.py     # python -m support
 ├── core/
-│   ├── scanner.py      # File discovery + LOC
+│   ├── models.py       # Leaf: ModuleInfo + utilities (I=0.125)
+│   ├── scanner.py      # File discovery
 │   ├── analyzer.py     # AST imports + symbols + complexity
 │   ├── graph.py        # Directed graph + algorithms
 │   ├── metrics.py      # Ca/Ce/I/A/D + health scoring
-│   ├── cycles.py       # Tarjan's SCC + severity
+│   ├── cycles.py       # Tarjan's SCC + severity + kind
 │   ├── rules.py        # 5 architecture rule types
 │   ├── insights.py     # Deterministic insight derivation
 │   └── symbols.py      # Cross-file symbol resolution
+├── languages/          # Multi-language support
+│   ├── base.py         # Adapter protocol
+│   ├── registry.py     # Adapter factory
+│   ├── python/         # Python adapter
+│   ├── javascript/     # JavaScript adapter
+│   ├── typescript/     # TypeScript adapter
+│   └── shared/         # JS/TS common regexes
 ├── server/
 │   └── mcp.py          # 10 MCP tools
 └── visualizer/
@@ -423,7 +458,7 @@ src/hawkeye/
     └── json_renderer.py    # Structured JSON
 ```
 
-271 tests across 11 test files (10 test and 1 conftest file). Zero required dependencies. Python 3.10+.
+37 modules, 5,591 LOC, 0 import cycles. 285 tests across 11 test files. Zero required dependencies. Python 3.10+.
 
 ## License
 

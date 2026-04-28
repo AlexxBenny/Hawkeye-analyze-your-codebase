@@ -1,58 +1,25 @@
 """File discovery and module indexing.
 
-Walks a Python project tree, converts file paths to dotted module names,
+Walks a project tree, converts file paths to dotted module names,
 and builds a structured index of all discoverable modules. Handles
-__init__.py packages, namespace packages, and configurable exclusions.
+language-specific module conventions and configurable exclusions.
 """
 
 import fnmatch
 import os
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+from .models import (ModuleInfo, count_lines,  # canonical; re-exported
+                     path_to_module)
+
+if TYPE_CHECKING:
+    from ..languages.base import LanguageAdapter
 
 
-@dataclass
-class ModuleInfo:
-    """Metadata about a discovered Python module."""
-    module_name: str       # Dotted module name (e.g. "project.core.engine")
-    full_path: str         # Absolute file path
-    rel_path: str          # Path relative to project root
-    package: str           # Parent package (e.g. "project.core")
-    is_package: bool       # True if this is an __init__.py
-    loc: int = 0           # Lines of code (populated during analysis)
-
-
-def _count_lines(file_path: str) -> int:
-    """Count non-blank, non-comment lines in a Python file."""
-    count = 0
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                stripped = line.strip()
-                if stripped and not stripped.startswith("#"):
-                    count += 1
-    except (OSError, UnicodeDecodeError):
-        pass
-    return count
-
-
-def _path_to_module(rel_path: str) -> tuple[str, bool]:
-    """Convert a relative file path to a dotted module name.
-
-    Returns:
-        Tuple of (module_name, is_package).
-    """
-    rel_path = rel_path.replace("\\", "/")
-    parts = rel_path.split("/")
-
-    is_package = parts[-1] == "__init__.py"
-    if is_package:
-        parts = parts[:-1]
-    else:
-        parts[-1] = parts[-1].removesuffix(".py")
-
-    return ".".join(parts), is_package
+# Backward-compatible aliases (deprecated — use the public names)
+_count_lines = count_lines
+_path_to_module = path_to_module
 
 
 def _should_exclude(name: str, exclude_dirs: set[str]) -> bool:
@@ -73,19 +40,33 @@ def scan_project(
     exclude_dirs: Optional[set[str]] = None,
     exclude_patterns: Optional[list[str]] = None,
     include_patterns: Optional[list[str]] = None,
+    languages: Optional[list[str]] = None,
+    language_settings: Optional[dict] = None,
+    *,
+    adapters: Optional[dict[str, "LanguageAdapter"]] = None,
 ) -> dict[str, ModuleInfo]:
-    """Scan a Python project and build a module index.
+    """Scan a project and build a module index.
 
     Args:
         root_path: Absolute path to the project root directory.
         exclude_dirs: Directory names to skip during traversal.
         exclude_patterns: Glob patterns for module names to exclude.
         include_patterns: If set, only modules matching these patterns are included.
+        languages: Language names to enable (default: Python only).
+        language_settings: Per-language configuration.
+        adapters: Pre-built adapter dict (avoids import cycle when
+                  called from engine). If not provided, falls back to
+                  lazy import of the registry for backward compatibility.
 
     Returns:
         Dictionary mapping dotted module names to ModuleInfo objects.
     """
     from ..config import DEFAULT_EXCLUDES
+
+    if adapters is None:
+        # Backward-compatible fallback — only used by tests and CLI
+        from ..languages.registry import get_language_adapters
+        adapters = get_language_adapters(languages, language_settings or {})
 
     if exclude_dirs is None:
         exclude_dirs = DEFAULT_EXCLUDES
@@ -97,6 +78,11 @@ def scan_project(
     root = Path(root_path).resolve()
     project_name = root.name
     file_index: dict[str, ModuleInfo] = {}
+    extension_map = {
+        ext.lower(): adapter
+        for adapter in adapters.values()
+        for ext in adapter.extensions
+    }
 
     for dirpath, dirnames, filenames in os.walk(root):
         # Prune excluded directories in-place
@@ -106,14 +92,15 @@ def scan_project(
         )
 
         for filename in sorted(filenames):
-            if not filename.endswith(".py"):
+            ext = Path(filename).suffix.lower()
+            adapter = extension_map.get(ext)
+            if not adapter:
                 continue
 
             full_path = os.path.join(dirpath, filename)
             rel_path = os.path.relpath(full_path, root).replace("\\", "/")
 
-            module_name_suffix, is_package = _path_to_module(rel_path)
-            module_name = f"{project_name}.{module_name_suffix}" if module_name_suffix else project_name
+            module_name, is_package = adapter.path_to_module(rel_path, project_name)
 
             # Apply filters
             if exclude_patterns and _matches_patterns(module_name, exclude_patterns):
@@ -131,7 +118,9 @@ def scan_project(
                 rel_path=rel_path,
                 package=package,
                 is_package=is_package,
-                loc=_count_lines(full_path),
+                loc=adapter.count_lines(full_path),
+                language=adapter.name,
             )
 
     return file_index
+

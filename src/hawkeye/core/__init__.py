@@ -11,24 +11,23 @@ from .insights import (Insight, classify_risk, derive_module_insights,
 from .metrics import (ModuleMetrics, ProjectMetrics, calculate_module_metrics,
                       calculate_project_metrics, format_metrics_table,
                       sort_metrics)
-from .rules import (Violation, check_acyclic_siblings_rules, check_all_rules,
-                    check_protected_rules)
-from .scanner import ModuleInfo, scan_project
+from .models import ModuleInfo
+from .rules import Violation, check_all_rules
+from .scanner import scan_project
 from .symbols import (SymbolGraph, SymbolReference, SymbolRegistry,
                       resolve_references)
 
 __all__ = [
     "ModuleInfo", "scan_project",
-    "ResolvedImport", "analyze_project",
+    "ResolvedImport", "SymbolInfo", "SymbolTable", "analyze_project",
     "DependencyGraph",
     "ModuleMetrics", "ProjectMetrics",
     "calculate_module_metrics", "calculate_project_metrics",
-    "format_metrics_table",
+    "format_metrics_table", "sort_metrics",
     "CycleReport", "detect_cycles",
     "Violation", "check_all_rules",
+    "Insight", "classify_risk", "derive_module_insights",
+    "insights_compact", "insights_full",
     "SymbolRegistry", "SymbolGraph", "SymbolReference",
     "resolve_references",
-    "Insight", "derive_module_insights",
-    "insights_compact", "insights_full",
-    "classify_risk",
 ]

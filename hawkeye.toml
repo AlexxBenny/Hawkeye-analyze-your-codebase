@@ -12,11 +12,21 @@ exclude_dirs = [
     "build", "dist", ".mypy_cache", ".pytest_cache",
     "site-packages", ".tox", ".eggs",
 ]
+# Languages to analyze (defaults to ["python"])
+# languages = ["python", "javascript", "typescript"]
 # Module name patterns to exclude (glob syntax)
 # exclude_patterns = ["*.tests.*", "*.migrations.*"]
 
 # Module name patterns to include exclusively
 # include_patterns = ["myproject.*"]
+
+# Per-language settings
+# [scan.language.javascript]
+# extensions = [".js", ".jsx", ".mjs", ".cjs"]
+#
+# [scan.language.typescript]
+# extensions = [".ts", ".tsx"]
+# tsconfig = "tsconfig.json"
 
 [analysis]
 # max_depth = 3             # Collapse modules deeper than this

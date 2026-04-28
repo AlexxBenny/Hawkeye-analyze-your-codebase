@@ -13,13 +13,29 @@ import pytest
 from hawkeye.core.analyzer import (ImportDetail, ResolvedImport, SymbolInfo,
                                    SymbolTable)
 from hawkeye.core.graph import DependencyGraph, EdgeInfo, NodeInfo
-from hawkeye.core.scanner import ModuleInfo
+from hawkeye.core.models import ModuleInfo
 
 # ── Temporary project fixtures ─────────────────────────────────
 
 
 def _write_py(root: Path, rel_path: str, content: str) -> Path:
     """Write a Python file into a temp project tree."""
+    full = root / rel_path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(textwrap.dedent(content), encoding="utf-8")
+    return full
+
+
+def _write_js(root: Path, rel_path: str, content: str) -> Path:
+    """Write a JavaScript file into a temp project tree."""
+    full = root / rel_path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(textwrap.dedent(content), encoding="utf-8")
+    return full
+
+
+def _write_ts(root: Path, rel_path: str, content: str) -> Path:
+    """Write a TypeScript file into a temp project tree."""
     full = root / rel_path
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(textwrap.dedent(content), encoding="utf-8")
@@ -188,6 +204,70 @@ def complex_project(tmp_path: Path) -> Path:
                                 pass
             return result
     ''')
+
+    return root
+
+
+@pytest.fixture
+def mixed_project(tmp_path: Path) -> Path:
+    """Create a mixed JS/TS project with path aliases."""
+    root = tmp_path / "mixed"
+    root.mkdir()
+
+    _write_js(root, "src/index.js", '''\
+        import { add } from "./utils/math";
+
+        export function run(x, y) {
+            return add(x, y);
+        }
+    ''')
+    _write_js(root, "src/utils/math.js", '''\
+        export class Calculator {
+            add(a, b) {
+                return a + b;
+            }
+        }
+
+        export function add(a, b) {
+            return a + b;
+        }
+    ''')
+
+    _write_ts(root, "src/utils/math.ts", '''\
+        export function add(a: number, b: number): number {
+            return a + b;
+        }
+    ''')
+
+    _write_ts(root, "src/types/user.ts", '''\
+        export interface User {
+            name: string;
+        }
+    ''')
+    _write_ts(root, "src/components/Button.tsx", '''\
+        import type { User } from "../types/user";
+
+        export const Button = () => {
+            const name: User["name"] = "Test";
+            return name;
+        };
+    ''')
+    _write_ts(root, "src/alias.ts", '''\
+        import { add } from "@lib/math";
+
+        export const total = add(1, 2);
+    ''')
+
+    (root / "tsconfig.json").write_text(textwrap.dedent("""\
+        {
+          "compilerOptions": {
+            "baseUrl": "src",
+            "paths": {
+              "@lib/*": ["utils/*"]
+            }
+          }
+        }
+    """), encoding="utf-8")
 
     return root
 
