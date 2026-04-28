@@ -5,6 +5,21 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-04-28
+
+### Changed
+- **README**: Complete rewrite with AI-editor-first positioning. Leads with MCP integration, token efficiency, and deterministic output — human CLI is secondary.
+- **PyPI description**: Updated to reflect AI agent focus: "Architectural intelligence for AI coding agents — one call gives your editor full context before it edits."
+- **Documentation structure**: Added "Interpreting the Output" reference (insight codes, risk profiles, health labels with thresholds), MCP tools reference table, recommended agent workflow, and token budget estimates.
+
+### Added
+- **MCP setup examples**: Copy-paste config snippets for Claude Code, Cursor, and Windsurf.
+- **Troubleshooting section**: Covers common issues (test module I=1.0, `--functions` output visibility, `--no-cycles` flag, Windows UTF-8).
+- **Performance table**: Documented analysis speed (281 modules in ~5s), query latency (<10ms), and install time (<1s).
+
+### Removed
+- Internal assessment file (`hawkeye_assessment.md`) — testing artifact, not user-facing.
+
 ## [0.1.3] - 2026-04-28
 
 ### Added
