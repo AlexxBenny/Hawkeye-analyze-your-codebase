@@ -50,10 +50,14 @@ class ThresholdConfig:
     ca_high: int = 8
 
     # ── Cyclomatic complexity ──
+    cc_moderate: int = 5
+    cc_elevated: int = 10
     cc_high: int = 20
     cc_critical: int = 50
 
     # ── Cognitive complexity ──
+    cog_moderate: int = 8
+    cog_elevated: int = 15
     cog_high: int = 25
     cog_critical: int = 50
 
@@ -80,7 +84,9 @@ class ThresholdConfig:
         """Lower thresholds — more warnings, catches issues early."""
         return cls(
             profile="strict",
+            cc_moderate=3, cc_elevated=7,
             cc_high=10, cc_critical=30,
+            cog_moderate=5, cog_elevated=10,
             cog_high=15, cog_critical=30,
             loc_high=200, loc_critical=300,
             dependents_high=3, dependents_critical=5,
@@ -93,7 +99,9 @@ class ThresholdConfig:
         """Higher thresholds — fewer warnings, for large/complex codebases."""
         return cls(
             profile="relaxed",
+            cc_moderate=8, cc_elevated=15,
             cc_high=30, cc_critical=80,
+            cog_moderate=12, cog_elevated=25,
             cog_high=40, cog_critical=80,
             loc_high=500, loc_critical=1000,
             dependents_high=10, dependents_critical=20,

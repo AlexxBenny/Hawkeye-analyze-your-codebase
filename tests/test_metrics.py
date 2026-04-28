@@ -8,7 +8,7 @@ from hawkeye.core.metrics import (ModuleMetrics, ProjectMetrics,
 
 
 class TestAssessHealth:
-    """Tests for module health classification."""
+    """Tests for module health classification (5-level system)."""
 
     def test_isolated_module_is_healthy(self):
         assert _assess_health(ca=0, ce=0, instability=0.0) == "healthy"
@@ -16,8 +16,9 @@ class TestAssessHealth:
     def test_high_instability_high_coupling_is_critical(self):
         assert _assess_health(ca=1, ce=10, instability=0.91) == "critical"
 
-    def test_moderate_coupling_is_warning(self):
-        assert _assess_health(ca=2, ce=6, instability=0.75) == "warning"
+    def test_moderate_coupling_is_elevated(self):
+        # I=0.75 > 0.8*0.875=0.7, Ce=6 > 8*0.625=5 → elevated
+        assert _assess_health(ca=2, ce=6, instability=0.75) == "elevated"
 
     def test_low_coupling_is_healthy(self):
         assert _assess_health(ca=3, ce=2, instability=0.4) == "healthy"
@@ -28,11 +29,20 @@ class TestAssessHealth:
     def test_extreme_cognitive_is_critical(self):
         assert _assess_health(ca=1, ce=1, instability=0.5, cog=65) == "critical"
 
-    def test_moderate_complexity_is_warning(self):
-        assert _assess_health(ca=1, ce=1, instability=0.5, cc=25) == "warning"
+    def test_high_complexity_is_high(self):
+        assert _assess_health(ca=1, ce=1, instability=0.5, cc=25) == "high"
 
-    def test_high_outgoing_no_dependents_is_critical(self):
+    def test_elevated_complexity(self):
+        assert _assess_health(ca=1, ce=1, instability=0.5, cc=12) == "elevated"
+
+    def test_moderate_complexity(self):
+        assert _assess_health(ca=1, ce=1, instability=0.5, cc=6) == "moderate"
+
+    def test_high_outgoing_no_dependents_is_high(self):
         assert _assess_health(ca=0, ce=12, instability=1.0) == "critical"
+
+    def test_parse_error_is_unknown(self):
+        assert _assess_health(ca=0, ce=0, instability=0.0, parse_error=True) == "unknown"
 
 
 class TestCalculateModuleMetrics:
@@ -109,7 +119,8 @@ class TestCalculateProjectMetrics:
         mod_metrics = calculate_module_metrics(simple_graph)
         pm = calculate_project_metrics(simple_graph, mod_metrics)
 
-        total = pm.modules_healthy + pm.modules_warning + pm.modules_critical
+        total = (pm.modules_healthy + pm.modules_moderate + pm.modules_elevated
+                 + pm.modules_high + pm.modules_critical + pm.modules_unknown)
         assert total == 3
 
 

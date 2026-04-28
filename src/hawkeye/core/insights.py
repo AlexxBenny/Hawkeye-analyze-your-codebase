@@ -34,8 +34,12 @@ _THRESHOLDS = {
     "instability_low": 0.2,
     "ce_high": 8,
     "ca_high": 8,
+    "cc_moderate": 5,
+    "cc_elevated": 10,
     "cc_high": 20,
     "cc_critical": 50,
+    "cog_moderate": 8,
+    "cog_elevated": 15,
     "cog_high": 25,
     "cog_critical": 50,
     "loc_high": 300,
@@ -299,6 +303,20 @@ def _derive_dependency_fan(ce: int, t: "ThresholdConfig") -> list[Insight]:
     return []
 
 
+def _derive_parse_error(parse_error: bool, loc: int) -> list[Insight]:
+    """Derive insights from AST parse failure."""
+    if not parse_error:
+        return []
+    return [Insight(
+        code="parse_failed",
+        severity="critical",
+        metric="ast_parse",
+        value=loc,
+        threshold=0,
+        detail=f"AST parse failed (LOC={loc}): all metrics unreliable",
+    )]
+
+
 def _derive_zones(
     abstractness: float, instability: float, distance: float,
     class_count: int,
@@ -376,6 +394,7 @@ def derive_module_insights(
     abstractness: float = 0.0,
     distance_main_seq: float = 0.0,
     class_count: int = 0,
+    parse_error: bool = False,
     thresholds: Optional["ThresholdConfig"] = None,
 ) -> list[Insight]:
     """Derive all deterministic insights for a single module.
@@ -386,6 +405,7 @@ def derive_module_insights(
     t = thresholds or _default_thresholds()
     insights: list[Insight] = []
 
+    insights.extend(_derive_parse_error(parse_error, loc))
     insights.extend(_derive_instability(instability, ca, ce, t))
     insights.extend(_derive_coupling(ca, ce, t))
     insights.extend(_derive_complexity(cyclomatic, cognitive, t))

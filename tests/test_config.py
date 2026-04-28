@@ -287,19 +287,19 @@ class TestSemanticConsistency:
         assert health == "critical"
         assert "extreme_cognitive" in codes
 
-    def test_warning_complexity_consistent(self):
-        """If CC >= cc_high, both health and insights say 'warning'."""
+    def test_high_complexity_consistent(self):
+        """If CC >= cc_high, both health and insights say 'high'."""
         from hawkeye.core.insights import derive_module_insights
         from hawkeye.core.metrics import _assess_health
 
         t = ThresholdConfig()
-        cc = t.cc_high  # at warning threshold
+        cc = t.cc_high  # at high threshold
 
         health = _assess_health(1, 1, 0.5, cc=cc, cog=0, thresholds=t)
         insights = derive_module_insights(cyclomatic=cc, ca=1, ce=1, thresholds=t)
         codes = [i.code for i in insights]
 
-        assert health == "warning"
+        assert health == "high"
         assert "high_cyclomatic" in codes
 
     def test_consistency_across_profiles(self):

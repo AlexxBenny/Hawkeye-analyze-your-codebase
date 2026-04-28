@@ -41,8 +41,11 @@ def render_json(
             "density": project_metrics.density,
             "has_cycles": project_metrics.has_cycles,
             "modules_healthy": project_metrics.modules_healthy,
-            "modules_warning": project_metrics.modules_warning,
+            "modules_moderate": project_metrics.modules_moderate,
+            "modules_elevated": project_metrics.modules_elevated,
+            "modules_high": project_metrics.modules_high,
             "modules_critical": project_metrics.modules_critical,
+            "modules_unknown": project_metrics.modules_unknown,
         }
 
     # Add cycle information

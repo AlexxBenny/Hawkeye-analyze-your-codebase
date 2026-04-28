@@ -111,8 +111,11 @@ def create_mcp_server():
             "cycle_count": engine.cycle_report.cycle_count,
             "health": {
                 "healthy": pm.modules_healthy,
-                "warning": pm.modules_warning,
+                "moderate": pm.modules_moderate,
+                "elevated": pm.modules_elevated,
+                "high": pm.modules_high,
                 "critical": pm.modules_critical,
+                "unknown": pm.modules_unknown,
             },
         }
 
@@ -252,6 +255,7 @@ def create_mcp_server():
                  "instability": m.instability, "loc": m.loc, "health": m.health,
                  "cc": m.cyclomatic_complexity, "cog": m.cognitive_complexity,
                  "classes": m.class_count, "functions": m.function_count}
+                | ({"parse_error": True} if m.parse_error else {})
                 for m in items
             ],
         }

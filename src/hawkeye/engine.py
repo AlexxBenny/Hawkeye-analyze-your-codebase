@@ -321,7 +321,7 @@ class HawkeyeEngine:
         }
 
         if m:
-            result["metrics"] = {
+            metrics_dict = {
                 "ca": m.ca, "ce": m.ce,
                 "instability": m.instability,
                 "health": m.health,
@@ -331,6 +331,9 @@ class HawkeyeEngine:
                 "functions": m.function_count,
                 "methods": m.method_count,
             }
+            if m.parse_error:
+                metrics_dict["parse_error"] = True
+            result["metrics"] = metrics_dict
 
         if cycles:
             result["cycles"] = [
@@ -372,6 +375,7 @@ class HawkeyeEngine:
             abstractness=m.abstractness if m else 0.0,
             distance_main_seq=m.distance_main_seq if m else 0.0,
             class_count=m.class_count if m else 0,
+            parse_error=m.parse_error if m else False,
             thresholds=t,
         )
         if insights:

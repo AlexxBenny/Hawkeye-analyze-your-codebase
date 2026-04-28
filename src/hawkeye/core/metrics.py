@@ -23,7 +23,7 @@ class ModuleMetrics:
     import_count: int   # Total import statements
     fan_in: int         # Same as Ca (incoming edges)
     fan_out: int        # Same as Ce (outgoing edges)
-    health: str         # "healthy", "warning", "critical"
+    health: str         # "healthy", "moderate", "elevated", "high", "critical", "unknown"
     # Symbol counts
     class_count: int = 0
     function_count: int = 0
@@ -35,14 +35,19 @@ class ModuleMetrics:
     # Martin metrics
     abstractness: float = 0.0           # A = Na / Nc (0 if no classes)
     distance_main_seq: float = 0.0      # D = |A + I - 1|
+    # Parse status
+    parse_error: bool = False
 
     @property
     def health_emoji(self) -> str:
-        return {"healthy": "✅", "warning": "⚠️", "critical": "🔴"}[self.health]
+        return {
+            "unknown": "❓", "healthy": "✅", "moderate": "🟡",
+            "elevated": "🟠", "high": "🔴", "critical": "🔥",
+        }[self.health]
 
     def to_dict(self) -> dict:
         """Single canonical serialization. ALL renderers use this."""
-        return {
+        d = {
             "module": self.module_name,
             "ca": self.ca,
             "ce": self.ce,
@@ -58,6 +63,9 @@ class ModuleMetrics:
             "methods": self.method_count,
             "abstract_classes": self.abstract_class_count,
         }
+        if self.parse_error:
+            d["parse_error"] = True
+        return d
 
 
 @dataclass
@@ -69,8 +77,11 @@ class ProjectMetrics:
     avg_instability: float
     max_instability: float
     modules_critical: int
-    modules_warning: int
+    modules_high: int
+    modules_elevated: int
+    modules_moderate: int
     modules_healthy: int
+    modules_unknown: int
     density: float          # edge_count / (node_count * (node_count - 1))
     has_cycles: bool
 
@@ -80,35 +91,51 @@ def _assess_health(
     cc: int = 1, cog: int = 0,
     *,
     thresholds: "ThresholdConfig | None" = None,
+    parse_error: bool = False,
 ) -> str:
-    """Determine module health based on coupling and complexity metrics.
+    """Determine module health on a 5-level monotonic severity scale.
+
+    Levels (ascending severity):
+        healthy  — no structural issues
+        moderate — mild concerns, acceptable
+        elevated — noticeable risk
+        high     — strong structural problems
+        critical — severe / immediate concern
+        unknown  — AST parse failed, metrics unreliable
 
     All thresholds come from ThresholdConfig — no hardcoded numbers.
-    This ensures health labels are consistent with insights.
     """
+    if parse_error:
+        return "unknown"
+
     if thresholds is None:
         from ..config import ThresholdConfig
         thresholds = ThresholdConfig()
 
     t = thresholds
 
-    # Critical: extreme complexity
+    # Critical: extreme complexity or severe coupling
     if cc >= t.cc_critical or cog >= t.cog_critical:
         return "critical"
-    if ca + ce == 0:
-        return "healthy"
-    # Critical: high instability + high coupling
     if instability > t.instability_high and ce > t.ce_high:
         return "critical"
-    # Warning: moderate complexity
+
+    # High: significant structural problems
     if cc >= t.cc_high or cog >= t.cog_high:
-        return "warning"
-    # Warning: elevated instability + coupling (early signal)
-    if instability > t.instability_high * 0.875 and ce > t.ce_high * 0.625:
-        return "warning"
-    # Warning: high outgoing, nothing depends on it
+        return "high"
     if ca == 0 and ce > t.ce_high:
-        return "warning"
+        return "high"
+
+    # Elevated: noticeable risk
+    if cc >= t.cc_elevated or cog >= t.cog_elevated:
+        return "elevated"
+    if instability > t.instability_high * 0.875 and ce > t.ce_high * 0.625:
+        return "elevated"
+
+    # Moderate: mild concerns
+    if cc >= t.cc_moderate or cog >= t.cog_moderate:
+        return "moderate"
+
     return "healthy"
 
 
@@ -139,8 +166,12 @@ def calculate_module_metrics(
         st = symbol_tables.get(module_name)
         cc = st.cyclomatic_complexity if st else 1
         cog = st.cognitive_complexity if st else 0
+        pe = st.parse_error if st else False
 
-        health = _assess_health(ca, ce, instability, cc, cog, thresholds=thresholds)
+        health = _assess_health(
+            ca, ce, instability, cc, cog,
+            thresholds=thresholds, parse_error=pe,
+        )
 
         # Abstractness (A) and Distance from Main Sequence (D)
         abstract_count = st.abstract_class_count if st else 0
@@ -166,6 +197,7 @@ def calculate_module_metrics(
             cognitive_complexity=cog,
             abstractness=round(abstractness, 3),
             distance_main_seq=round(distance, 3),
+            parse_error=pe,
         )
 
     return results
@@ -187,15 +219,21 @@ def calculate_project_metrics(
     max_possible_edges = n * (n - 1) if n > 1 else 1
     density = e / max_possible_edges
 
+    def _count(label: str) -> int:
+        return sum(1 for m in module_metrics.values() if m.health == label)
+
     return ProjectMetrics(
         total_modules=n,
         total_edges=e,
         total_loc=total_loc,
         avg_instability=round(avg_instability, 3),
         max_instability=round(max(instabilities, default=0.0), 3),
-        modules_critical=sum(1 for m in module_metrics.values() if m.health == "critical"),
-        modules_warning=sum(1 for m in module_metrics.values() if m.health == "warning"),
-        modules_healthy=sum(1 for m in module_metrics.values() if m.health == "healthy"),
+        modules_critical=_count("critical"),
+        modules_high=_count("high"),
+        modules_elevated=_count("elevated"),
+        modules_moderate=_count("moderate"),
+        modules_healthy=_count("healthy"),
+        modules_unknown=_count("unknown"),
         density=round(density, 4),
         has_cycles=has_cycles,
     )
@@ -207,7 +245,10 @@ _SORT_ALIASES = {
     "distance": "distance_main_seq",
 }
 
-_HEALTH_ORDER = {"critical": 0, "warning": 1, "healthy": 2}
+_HEALTH_ORDER = {
+    "unknown": -1, "critical": 0, "high": 1,
+    "elevated": 2, "moderate": 3, "healthy": 4,
+}
 
 
 def sort_metrics(

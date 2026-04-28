@@ -5,6 +5,28 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-28
+
+### ⚠️ Breaking Changes
+- **Health labels**: Expanded from 3 (`healthy`/`warning`/`critical`) to 5 monotonic severity levels (`healthy`/`moderate`/`elevated`/`high`/`critical`) plus `unknown` for unparseable files.
+- **ProjectMetrics**: `modules_warning` field removed, replaced by `modules_high`, `modules_elevated`, `modules_moderate`, and `modules_unknown`.
+- **MCP output**: `hawkeye_analyze` health breakdown now returns all 6 labels instead of 3.
+
+### Fixed
+- **Critical: Silent false negatives on corrupted files** — Files that fail AST parsing (syntax errors, encoding issues) were silently reported as `health: "healthy"` with `CC=1, functions=0, classes=0`. Hawkeye now sets `health: "unknown"` and `parse_error: true`, and fires a `parse_failed` critical insight. Corrupted files will never be classified as healthy again.
+
+### Added
+- **Parse error detection**: `SymbolTable.parse_error` flag tracks AST parse failures at source. Propagated through `ModuleMetrics`, file context, and MCP output.
+- **`parse_failed` insight**: Critical-severity insight fires when a file cannot be parsed, making failures impossible to miss.
+- **Intermediate thresholds**: `cc_moderate`/`cc_elevated` and `cog_moderate`/`cog_elevated` in `ThresholdConfig` for finer-grained health classification.
+- **All threshold profiles updated**: `strict` and `relaxed` profiles now cover all 5 health levels consistently.
+- **274 tests** (was 274, all updated for new health system).
+
+### Changed
+- **`_assess_health`**: Rewritten with 5-level monotonic severity scale. Uses combined signals (complexity + coupling + instability) instead of single-metric triggers.
+- **Health emojis**: ✅ healthy, 🟡 moderate, 🟠 elevated, 🔴 high, 🔥 critical, ❓ unknown.
+- **Text/JSON/MCP renderers**: All output paths updated for 5-level health breakdown.
+
 ## [0.1.4] - 2026-04-28
 
 ### Changed
@@ -68,7 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Coupling metrics: Ca (afferent), Ce (efferent), Instability (I = Ce/(Ca+Ce))
   - Cyclomatic complexity and cognitive complexity (SonarSource specification)
   - Symbol extraction: classes, functions, methods per module
-  - Health scoring: composite of coupling + complexity → healthy/warning/critical
+  - Health scoring: composite of coupling + complexity → healthy/warning/critical (3-level, replaced in v0.2.0)
 
 - **Cycle Detection**
   - Tarjan's SCC algorithm

@@ -56,6 +56,7 @@ class SymbolTable:
     abstract_class_count: int = 0    # Classes detected as abstract
     cyclomatic_complexity: int = 1   # Module-level cyclomatic complexity
     cognitive_complexity: int = 0    # Cognitive complexity (nesting-weighted)
+    parse_error: bool = False        # True if AST parsing failed
 
     @property
     def total_symbols(self) -> int:
@@ -448,7 +449,7 @@ def analyze_file_full(
     """Analyze a file for imports AND symbols in a single AST parse."""
     tree = _parse_file(module_info)
     if tree is None:
-        return [], SymbolTable()
+        return [], SymbolTable(parse_error=True)
     imports = _extract_imports(tree, module_info, project_name, file_index)
     symbols = _extract_symbols(tree)
     return imports, symbols

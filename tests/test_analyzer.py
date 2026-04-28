@@ -251,7 +251,7 @@ class TestAnalyzeProject:
         assert any(c.name == "User" for c in st.classes)
 
     def test_handles_syntax_error(self, tmp_path):
-        """Files with syntax errors should be gracefully skipped."""
+        """Files with syntax errors should be flagged, not silently ignored."""
         root = tmp_path / "badproject"
         root.mkdir()
         bad = root / "bad.py"
@@ -266,3 +266,4 @@ class TestAnalyzeProject:
         bad_key = [k for k in index if "bad" in k][0]
         assert imports[bad_key] == []
         assert symbols[bad_key].class_count == 0
+        assert symbols[bad_key].parse_error is True
