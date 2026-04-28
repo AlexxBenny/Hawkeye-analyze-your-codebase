@@ -10,7 +10,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from .models import ModuleInfo, count_lines, path_to_module  # canonical; re-exported
+from .models import (ModuleInfo, count_lines,  # canonical; re-exported
+                     path_to_module)
 
 if TYPE_CHECKING:
     from ..languages.base import LanguageAdapter

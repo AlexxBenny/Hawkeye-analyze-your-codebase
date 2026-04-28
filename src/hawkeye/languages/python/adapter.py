@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ..base import LanguageAdapter
 from ...core.models import count_lines, path_to_module
+from ..base import LanguageAdapter
 
 
 class PythonAdapter(LanguageAdapter):

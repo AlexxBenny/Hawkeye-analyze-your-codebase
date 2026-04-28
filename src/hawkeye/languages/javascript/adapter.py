@@ -6,20 +6,13 @@ import os
 import posixpath
 from pathlib import Path
 
+from ...core.analyzer import (ImportDetail, ResolvedImport, SymbolInfo,
+                              SymbolTable)
 from ..base import LanguageAdapter
-from ..shared.js_ts_common import (
-    ARROW_RE,
-    CLASS_RE,
-    FUNCTION_RE,
-    METHOD_RE,
-    compute_cognitive,
-    compute_cyclomatic,
-    count_js_loc,
-    extract_block,
-    extract_imports,
-    mask_js_source,
-)
-from ...core.analyzer import ImportDetail, ResolvedImport, SymbolInfo, SymbolTable
+from ..shared.js_ts_common import (ARROW_RE, CLASS_RE, FUNCTION_RE, METHOD_RE,
+                                   compute_cognitive, compute_cyclomatic,
+                                   count_js_loc, extract_block,
+                                   extract_imports, mask_js_source)
 
 
 class JavaScriptAdapter(LanguageAdapter):

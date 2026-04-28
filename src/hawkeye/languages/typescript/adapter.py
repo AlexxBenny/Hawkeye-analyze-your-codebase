@@ -8,20 +8,14 @@ import posixpath
 import re
 from pathlib import Path
 
+from ...core.analyzer import (ImportDetail, ResolvedImport, SymbolInfo,
+                              SymbolTable)
 from ..base import LanguageAdapter
-from ..shared.js_ts_common import (
-    ARROW_RE,
-    CLASS_RE,
-    FUNCTION_RE,
-    compute_cognitive,
-    compute_cyclomatic,
-    count_js_loc,
-    extract_block,
-    extract_imports,
-    mask_js_source,
-    strip_js_comments,
-)
-from ...core.analyzer import ImportDetail, ResolvedImport, SymbolInfo, SymbolTable
+from ..shared.js_ts_common import (ARROW_RE, CLASS_RE, FUNCTION_RE,
+                                   compute_cognitive, compute_cyclomatic,
+                                   count_js_loc, extract_block,
+                                   extract_imports, mask_js_source,
+                                   strip_js_comments)
 
 # TS extends the shared METHOD_RE with `readonly` keyword
 _TS_METHOD_RE = re.compile(

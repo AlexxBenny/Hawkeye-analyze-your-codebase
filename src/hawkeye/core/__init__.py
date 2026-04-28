@@ -11,8 +11,8 @@ from .insights import (Insight, classify_risk, derive_module_insights,
 from .metrics import (ModuleMetrics, ProjectMetrics, calculate_module_metrics,
                       calculate_project_metrics, format_metrics_table,
                       sort_metrics)
-from .rules import Violation, check_all_rules
 from .models import ModuleInfo
+from .rules import Violation, check_all_rules
 from .scanner import scan_project
 from .symbols import (SymbolGraph, SymbolReference, SymbolRegistry,
                       resolve_references)

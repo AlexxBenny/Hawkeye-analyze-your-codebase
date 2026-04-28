@@ -13,7 +13,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 # ── Shared symbol-detection regexes ────────────────────────────
 # Used by both JavaScriptAdapter._extract_symbols and
 # TypeScriptAdapter._extract_symbols.  TS adapter adds its own

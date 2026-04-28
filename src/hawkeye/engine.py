@@ -15,8 +15,8 @@ from .core import (CycleReport, DependencyGraph, ModuleInfo, ModuleMetrics,
                    ProjectMetrics, ResolvedImport, SymbolGraph,
                    SymbolReference, SymbolRegistry, Violation,
                    calculate_module_metrics, calculate_project_metrics,
-                   check_all_rules, detect_cycles,
-                   resolve_references, scan_project)
+                   check_all_rules, detect_cycles, resolve_references,
+                   scan_project)
 from .core.analyzer import SymbolTable
 from .languages.registry import analyze_project as analyze_languages
 from .languages.registry import get_language_adapters

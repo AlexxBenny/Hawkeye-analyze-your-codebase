@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from .base import LanguageAdapter
 from ..config import LanguageSettings
+from .base import LanguageAdapter
 
 
 def _normalize_languages(languages: Iterable[str] | None) -> list[str]:
@@ -30,8 +30,8 @@ def get_language_adapters(
     settings_map: dict[str, LanguageSettings] | None = None,
 ) -> dict[str, LanguageAdapter]:
     """Instantiate adapters for the requested languages."""
-    from .python.adapter import PythonAdapter
     from .javascript.adapter import JavaScriptAdapter
+    from .python.adapter import PythonAdapter
     from .typescript.adapter import TypeScriptAdapter
 
     settings_map = settings_map or {}
