@@ -34,6 +34,31 @@ pip install "hawkeye-analyzer[mcp]"
 
 ### 2. Add to your editor's MCP config
 
+**Antigravity / Gemini** (`~/.gemini/antigravity/mcp_config.json`):
+```json
+{
+  "mcpServers": {
+    "hawkeye": {
+      "command": "hawkeye-mcp",
+      "args": []
+    }
+  }
+}
+```
+No `--project` needed — the agent calls `hawkeye_analyze(project_path)` dynamically with whatever workspace is active. Works for any project without config changes.
+
+**Gemini CLI** (`~/.gemini/settings.json`):
+```json
+{
+  "mcpServers": {
+    "hawkeye": {
+      "command": "hawkeye-mcp",
+      "args": []
+    }
+  }
+}
+```
+
 **Claude Code** (`~/.claude/claude_desktop_config.json`):
 ```json
 {
@@ -58,7 +83,9 @@ pip install "hawkeye-analyzer[mcp]"
 }
 ```
 
-**Windsurf / Other MCP clients** — same pattern. The server uses stdio transport and pre-analyzes the project on startup.
+**Windsurf / Other MCP clients** — same pattern. The server uses stdio transport.
+
+> **Two modes:** Pass `--project /path` to pre-analyze on startup (faster first query, locked to one project). Or pass no args and call `hawkeye_analyze()` on demand (works for any project, ~5s on first use). Multi-project caching is supported — switching projects doesn't require re-analysis.
 
 ### 3. Done
 
@@ -285,7 +312,7 @@ ancestor = "services"
 
 ### Threshold Tuning
 
-All 19 thresholds are configurable. Choose a profile, then override individual values:
+All 18 thresholds are configurable. Choose a profile, then override individual values:
 
 ```toml
 [thresholds]
@@ -303,7 +330,7 @@ loc_critical = 600    # Override: allow larger modules
 The active profile is embedded in JSON output (`threshold_profile` field) for reproducibility.
 
 <details>
-<summary>All 19 threshold keys</summary>
+<summary>All 18 threshold keys</summary>
 
 | Key | Default | Controls |
 |-----|---------|----------|
@@ -351,6 +378,11 @@ Python files → AST parsing (single pass) → Import resolution → Dependency 
 - **BFS reachability** for transitive impact — cached per session
 - **Robert C. Martin's metrics** — Ca, Ce, Instability, Abstractness, Distance
 - **SonarSource spec** for cognitive complexity — nesting-weighted, not just branch counting
+- **LOC = code lines only** — blank lines and `#` comment lines are excluded. A file with 1,800 raw lines may report ~1,400 LOC. This is the more useful metric for complexity assessment
+
+### Data Storage
+
+**All analysis data lives in RAM only.** There is no database, no cache file, no `.hawkeye/` directory. The MCP server holds the dependency graph, metrics, and symbol registry in-process for the duration of the session. When the server stops (editor closes), all data is discarded. Next session re-analyzes from scratch — which takes ~5 seconds for a 300-module project.
 
 ---
 
@@ -391,7 +423,7 @@ src/hawkeye/
     └── json_renderer.py    # Structured JSON
 ```
 
-271 tests across 11 test files. Zero required dependencies. Python 3.10+.
+271 tests across 11 test files (10 test and 1 conftest file). Zero required dependencies. Python 3.10+.
 
 ## License
 

@@ -54,7 +54,7 @@ def _resolve_engine(project_path: str = ""):
 # ── MCP Server ──────────────────────────────────────────────────
 
 def create_mcp_server():
-    """Create the MCP server with 8 consolidated tools."""
+    """Create the MCP server with 10 consolidated tools."""
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError:
