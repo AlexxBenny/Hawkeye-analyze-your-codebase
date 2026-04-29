@@ -5,8 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/hawkeye-analyzer.svg)](https://pypi.org/project/hawkeye-analyzer/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-307%20passed-brightgreen.svg)]()
-[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-350%20passed-brightgreen.svg)]()
 
 ---
 
@@ -24,13 +23,15 @@ AI coding agents edit files without knowing the architecture. They:
 
 ## Setup for AI Editors (MCP)
 
-Hawkeye exposes **10 tools** via [Model Context Protocol](https://modelcontextprotocol.io/). Install and configure in under 60 seconds:
+Hawkeye exposes **12 tools** via [Model Context Protocol](https://modelcontextprotocol.io/). Install and configure in under 60 seconds:
 
 ### 1. Install
 
 ```bash
-pip install "hawkeye-analyzer[mcp]"
+pip install hawkeye-analyzer
 ```
+
+This installs everything: MCP server, Python/JavaScript/TypeScript analysis.
 
 ### 2. Add to your editor's MCP config
 
@@ -89,7 +90,7 @@ No `--project` needed — the agent calls `hawkeye_analyze(project_path)` dynami
 
 ### 3. Done
 
-The AI editor now has access to 10 architectural intelligence tools. The most important one:
+The AI editor now has access to 12 architectural intelligence tools. The most important one:
 
 ```
 hawkeye_file_context("src/core/engine.py")
@@ -121,7 +122,13 @@ Returns everything the agent needs in **one call**:
   },
   "insights": ["extreme_cyclomatic", "critical_blast_radius"],
   "risk": "hub",
-  "cycles": []
+  "cycles": [],
+  "git": {
+    "commits": 8,
+    "lines_changed": 420,
+    "days_since_change": 2,
+    "churn": "hot"
+  }
 }
 ```
 
@@ -137,7 +144,7 @@ Hawkeye is built specifically for AI agent consumption:
 | **Token-efficient** | Compact mode (default) strips verbose fields. A healthy module adds ~5 tokens. A problematic one adds ~30. Zero wasted tokens on modules with no issues. |
 | **One-call context** | `hawkeye_file_context` replaces 5+ separate queries. One tool call = full architectural picture. |
 | **Fast** | Single-pass AST parsing. 281 modules analyzed in ~5 seconds. Results cached for the session. |
-| **Zero dependencies** | Core analysis uses Python stdlib only (no external parsers). No transitive dependency hell. Installs in under a second. |
+| **Lightweight** | Pure Python AST for Python, tree-sitter for JS/TS. Minimal dependencies, fast install. |
 | **Machine-readable** | Every output is structured JSON. Insight codes are enumerated strings, not natural language. Risk profiles are single-token labels. |
 
 ### Token Budget
@@ -148,6 +155,8 @@ Hawkeye is built specifically for AI agent consumption:
 | Module with warnings | ~150 tokens |
 | Critical module with cycles | ~250 tokens |
 | Batch context (3 files) | ~400 tokens |
+| Git block in file context | ~17 tokens |
+| Hotspot ranking (5 files) | ~262 tokens |
 
 Compare this to dumping raw `import` statements or `grep` results — Hawkeye gives the AI **structured, pre-analyzed** architectural data at a fraction of the token cost.
 
@@ -167,6 +176,7 @@ After calling `hawkeye_analyze(project_path)` once, all other tools are availabl
 | `hawkeye_cycles()` | All import cycles with severity, kind, and break suggestions | Checking for circular dependencies |
 | `hawkeye_metrics(sort_by, limit)` | Coupling + complexity table for all modules | Finding the riskiest modules |
 | `hawkeye_path(source, target)` | Shortest dependency path between two modules | Understanding how modules are connected |
+| `hawkeye_hotspots(limit, days)` | Rank files by complexity × git churn — the real risk | Finding files that are both complex AND actively changing |
 | `hawkeye_graph(max_depth)` | Full dependency graph as JSON (auto-caps at 80+ modules) | Structural overview |
 
 ### Recommended Agent Workflow
@@ -259,6 +269,10 @@ hawkeye check ./myproject --no-cycles
 
 # AI-ready JSON context
 hawkeye context ./myproject src/engine.py
+
+# Git hotspots — complexity × churn
+hawkeye hotspots ./myproject
+hawkeye hotspots ./myproject --days 30 --limit 10
 ```
 
 ### Output Formats
@@ -269,6 +283,7 @@ hawkeye context ./myproject src/engine.py
 | `hawkeye metrics` | text (default), `--json`, `--functions` |
 | `hawkeye impact` | text (default), `--json`, `--hotspots`, `--unused` (framework-aware) |
 | `hawkeye context` | JSON only (designed for machine consumption) |
+| `hawkeye hotspots` | text (default), `--json`, `--days N`, `--limit N` |
 
 ---
 
@@ -427,7 +442,7 @@ Source files (Py/JS/TS) → Language-specific parsing → Import resolution → 
 | 281 modules, 58K LOC | ~5 seconds full analysis |
 | Incremental queries after analysis | <10ms per call |
 | Memory | Graph + metrics cached in-process |
-| Install time | <1 second (zero dependencies) |
+| Install time | ~5 seconds |
 | MCP server startup with pre-analysis | ~6 seconds |
 
 ---
@@ -453,6 +468,7 @@ src/hawkeye/
 │   ├── cycles.py       # Tarjan's SCC + severity + kind
 │   ├── rules.py        # 5 architecture rule types
 │   ├── insights.py     # Deterministic insight derivation
+│   ├── git_history.py  # Git churn, hotspots, rename tracking
 │   └── symbols.py      # Cross-file symbol resolution
 ├── languages/          # Multi-language support
 │   ├── base.py         # Adapter protocol
@@ -460,9 +476,9 @@ src/hawkeye/
 │   ├── python/         # Python adapter
 │   ├── javascript/     # JavaScript adapter
 │   ├── typescript/     # TypeScript adapter
-│   └── shared/         # JS/TS common regexes
+│   └── shared/         # Tree-sitter JS/TS parsing engine
 ├── server/
-│   └── mcp.py          # 10 MCP tools
+│   └── mcp.py          # 12 MCP tools
 └── visualizer/
     ├── html_renderer.py    # Interactive D3.js graph
     ├── dot_renderer.py     # Graphviz DOT
@@ -470,7 +486,7 @@ src/hawkeye/
     └── json_renderer.py    # Structured JSON
 ```
 
-60 modules, 8,744 LOC, 0 import cycles. 307 tests across 12 test files. Zero required dependencies. Python 3.10+.
+62 modules, 9,640 LOC, 0 import cycles. 350 tests across 12 test files. Python 3.10+.
 
 ## License
 

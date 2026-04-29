@@ -26,11 +26,13 @@ def build_file_context(
     symbol_tables: dict[str, SymbolTable],
     config: HawkeyeConfig,
     compact: bool = True,
+    git_history=None,
 ) -> dict:
     """Build everything an AI agent needs about a file in ONE call.
 
     Combines: module info + dependencies + dependents + impact +
-    cycle warnings + health metrics + related files + insights + risk.
+    cycle warnings + health metrics + related files + insights + risk +
+    git churn (when available).
 
     Returns:
         Complete context dict.
@@ -162,6 +164,22 @@ def build_file_context(
     )
     if risk:
         result["risk"] = risk
+
+    # ── Layer 4: Git churn (when available) ─────────────
+    if git_history and git_history.available:
+        node_path = graph.nodes[module].rel_path.replace("\\", "/")
+        churn = git_history.files.get(node_path)
+        if churn:
+            git_data: dict = {
+                "commits": churn.commit_count,
+                "lines_changed": churn.lines_changed,
+                "days_since_change": churn.days_since_last_change,
+                "churn": churn.churn_category,
+            }
+            if not compact:
+                git_data["contributors"] = churn.contributor_count
+                git_data["last_changed"] = churn.last_changed
+            result["git"] = git_data
 
     return result
 

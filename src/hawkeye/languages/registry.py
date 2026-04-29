@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Iterable
 
 from ..config import LanguageSettings
 from .base import LanguageAdapter
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_languages(languages: Iterable[str] | None) -> list[str]:
@@ -25,14 +28,38 @@ def _normalize_languages(languages: Iterable[str] | None) -> list[str]:
     return normalized or ["python"]
 
 
+def _check_js_available() -> bool:
+    """Check if tree-sitter JS dependencies are installed."""
+    try:
+        import tree_sitter  # noqa: F401
+        import tree_sitter_javascript  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _check_ts_available() -> bool:
+    """Check if tree-sitter TS dependencies are installed."""
+    try:
+        import tree_sitter  # noqa: F401
+        import tree_sitter_typescript  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def get_language_adapters(
     languages: Iterable[str] | None = None,
     settings_map: dict[str, LanguageSettings] | None = None,
 ) -> dict[str, LanguageAdapter]:
-    """Instantiate adapters for the requested languages."""
-    from .javascript.adapter import JavaScriptAdapter
+    """Instantiate adapters for the requested languages.
+
+    Only languages with installed dependencies are activated.
+    Python is always available. JS and TS require their respective
+    tree-sitter packages (install via pip install hawkeye-analyzer[js]
+    or hawkeye-analyzer[ts]).
+    """
     from .python.adapter import PythonAdapter
-    from .typescript.adapter import TypeScriptAdapter
 
     settings_map = settings_map or {}
     adapters: dict[str, LanguageAdapter] = {}
@@ -42,8 +69,22 @@ def get_language_adapters(
         if lang == "python":
             adapters[lang] = PythonAdapter(settings)
         elif lang == "javascript":
+            if not _check_js_available():
+                logger.warning(
+                    "JavaScript support requires tree-sitter dependencies. "
+                    "Install with: pip install hawkeye-analyzer[js]"
+                )
+                continue
+            from .javascript.adapter import JavaScriptAdapter
             adapters[lang] = JavaScriptAdapter(settings)
         elif lang == "typescript":
+            if not _check_ts_available():
+                logger.warning(
+                    "TypeScript support requires tree-sitter dependencies. "
+                    "Install with: pip install hawkeye-analyzer[ts]"
+                )
+                continue
+            from .typescript.adapter import TypeScriptAdapter
             adapters[lang] = TypeScriptAdapter(settings)
         else:
             continue

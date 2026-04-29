@@ -252,6 +252,67 @@ def run_serve(args) -> int:
     return 0
 
 
+def run_hotspots(args) -> int:
+    engine = _make_engine(args)
+    days = getattr(args, "days", 90)
+    hotspots, gh = engine.git_hotspots(limit=args.limit, days=days)
+    if not gh.available:
+        print("⚠️  Git history not available (not a git repo or git not installed).")
+        return 1
+
+    if not hotspots:
+        print("No hotspots found (no files with both complexity and recent changes).")
+        return 0
+
+    if args.json:
+        data = {
+            "analysis_days": gh.analysis_days,
+            "total_commits": gh.total_commits,
+            "hotspots": [
+                {
+                    "module": h.module,
+                    "file": h.rel_path,
+                    "hotspot_score": h.hotspot_score,
+                    "cc": h.cyclomatic_complexity,
+                    "commits": h.commit_count,
+                    "lines_changed": h.lines_changed,
+                    "days_since_change": h.days_since_last_change,
+                    "contributors": h.contributor_count,
+                    "churn": h.churn_category,
+                    "health": h.health,
+                }
+                for h in hotspots
+            ],
+        }
+        print(json_mod.dumps(data, indent=2, ensure_ascii=False))
+        return 0
+
+    # Text output
+    print(f"\n🔥 Hotspots: {engine.project_name} "
+          f"(last {gh.analysis_days} days, {gh.total_commits} commits)\n")
+
+    header = (f"{'Module':<45} {'Score':>7} {'CC':>4} "
+              f"{'Commits':>7} {'Lines':>7} {'Churn':>6} {'Health':>8}")
+    sep = "─" * len(header)
+    print(sep)
+    print(header)
+    print(sep)
+
+    _HEALTH_EMOJI = {
+        "healthy": "✅", "moderate": "🟡", "elevated": "🟠",
+        "high": "🔴", "critical": "🔥", "unknown": "❓",
+    }
+
+    for h in hotspots:
+        emoji = _HEALTH_EMOJI.get(h.health, "")
+        print(f"{h.module:<45} {h.hotspot_score:>7.0f} {h.cyclomatic_complexity:>4} "
+              f"{h.commit_count:>7} {h.lines_changed:>7} {h.churn_category:>6} {emoji:>8}")
+
+    print(sep)
+    print(f"\n  Score = CC × commits. Higher = more risk from active complexity.")
+    return 0
+
+
 # ── Internal helpers ────────────────────────────────────────────
 
 

@@ -59,6 +59,8 @@ class HawkeyeEngine:
         self._symbol_tables: dict[str, SymbolTable] = {}
         self._language_adapters: dict[str, object] = {}
         self._known_extensions: set[str] = set()
+        # Git history (lazy-loaded on first access)
+        self._git_history = None
 
     # ── Analysis Pipeline ──────────────────────────────────────
 
@@ -231,6 +233,32 @@ class HawkeyeEngine:
     def project_name(self) -> str:
         return self._project_name
 
+    @property
+    def git_history(self):
+        """Lazy-load git history on first access. Cached for session."""
+        if self._git_history is None:
+            from .core.git_history import analyze_git_history
+            self._git_history = analyze_git_history(self._project_root)
+        return self._git_history
+
+    def git_hotspots(self, limit: int = 20, days: int = 90):
+        """Compute hotspot ranking: complexity × churn.
+
+        Args:
+            limit: Max entries to return.
+            days: Git history window in days (default: 90).
+        """
+        from .core.git_history import analyze_git_history, compute_hotspots
+        # Use cached history for default window, fresh for custom
+        if days == 90:
+            gh = self.git_history
+        else:
+            gh = analyze_git_history(self._project_root, days=days)
+        return compute_hotspots(
+            gh, self.module_metrics,
+            self.file_index, limit=limit,
+        ), gh
+
     # ── File/Module Resolution ─────────────────────────────────
 
     def resolve(self, file_or_module: str) -> str | None:
@@ -329,6 +357,7 @@ class HawkeyeEngine:
             symbol_tables=self._symbol_tables,
             config=self.config,
             compact=compact,
+            git_history=self._git_history,  # None until first access
         )
 
     def get_batch_context(self, files: list[str], compact: bool = True) -> dict:

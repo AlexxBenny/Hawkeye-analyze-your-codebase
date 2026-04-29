@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hawkeye-analyzer"
-version = "0.4.0"
+version = "0.5.1"
 description = "Architectural intelligence for AI coding agents — one call gives your editor full context before it edits"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+license = {text = "MIT"}
 authors = [{name = "Alex"}]
 keywords = ["dependency", "architecture", "mcp", "static-analysis", "visualization"]
 classifiers = [
@@ -22,12 +22,16 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
-dependencies = []
+dependencies = [
+    "mcp>=1.0",
+    "tree-sitter>=0.24",
+    "tree-sitter-javascript>=0.23",
+    "tree-sitter-typescript>=0.23",
+]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
-all = ["mcp>=1.0"]
-dev = ["pytest", "mcp>=1.0", "isort", "black"]
+python-only = []  # pip install hawkeye-analyzer[python-only] — no tree-sitter, Python analysis only
+dev = ["pytest", "isort", "black"]
 
 [project.scripts]
 hawkeye = "hawkeye.cli:main"

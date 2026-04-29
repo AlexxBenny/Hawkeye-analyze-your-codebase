@@ -1,4 +1,8 @@
-"""JavaScript language adapter (zero dependencies)."""
+"""JavaScript language adapter (tree-sitter based).
+
+Requires: pip install hawkeye-analyzer[js]
+    (installs tree-sitter + tree-sitter-javascript)
+"""
 
 from __future__ import annotations
 
@@ -9,16 +13,15 @@ from pathlib import Path
 from ...core.analyzer import (ImportDetail, ResolvedImport, SymbolInfo,
                               SymbolTable)
 from ..base import LanguageAdapter
-from ..shared.js_ts_common import (ARROW_RE, CLASS_RE, FUNCTION_RE, METHOD_RE,
-                                   compute_cognitive, compute_cyclomatic,
-                                   count_js_loc, extract_block,
-                                   extract_imports, mask_js_source)
+from ..shared.js_ts_treesitter import (compute_cognitive, compute_cyclomatic,
+                                       count_loc, extract_imports,
+                                       extract_symbols)
 
 
 class JavaScriptAdapter(LanguageAdapter):
     name = "javascript"
     extensions = (".js", ".jsx", ".mjs", ".cjs")
-    _prefix = "js"
+    _lang_name = "javascript"
 
     def path_to_module(self, rel_path: str, project_name: str) -> tuple[str, bool]:
         normalized = rel_path.replace("\\", "/")
@@ -29,12 +32,12 @@ class JavaScriptAdapter(LanguageAdapter):
         if is_package:
             parts = parts[:-1]
         module_name = ".".join(parts) if parts else "index"
-        return f"{self._prefix}:{module_name}", is_package
+        return f"js:{module_name}", is_package
 
     def count_lines(self, file_path: str) -> int:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                return count_js_loc(f.read())
+            with open(file_path, "rb") as f:
+                return count_loc(f.read(), self._lang_name)
         except OSError:
             return 0
 
@@ -51,7 +54,7 @@ class JavaScriptAdapter(LanguageAdapter):
             if info.language != self.name:
                 continue
             try:
-                with open(info.full_path, "r", encoding="utf-8", errors="replace") as f:
+                with open(info.full_path, "rb") as f:
                     source = f.read()
             except OSError:
                 imports[module_name] = []
@@ -59,7 +62,7 @@ class JavaScriptAdapter(LanguageAdapter):
                 continue
 
             imports[module_name] = self._extract_imports(
-                source, info, path_map, known_exts
+                source, info, path_map, known_exts,
             )
             symbols[module_name] = self._extract_symbols(source)
 
@@ -77,9 +80,9 @@ class JavaScriptAdapter(LanguageAdapter):
 
     def _extract_imports(self, source, info, path_map, known_exts):
         resolved: dict[str, ResolvedImport] = {}
-        for imp in extract_imports(source):
+        for imp in extract_imports(source, self._lang_name):
             target = self._resolve_specifier(
-                imp.specifier, info, path_map, known_exts
+                imp.specifier, info, path_map, known_exts,
             )
             if not target or target == info.module_name:
                 continue
@@ -127,73 +130,39 @@ class JavaScriptAdapter(LanguageAdapter):
                 return path_map[normalized]
         return None
 
-    def _extract_symbols(self, source: str) -> SymbolTable:
-        masked = mask_js_source(source)
+    def _extract_symbols(self, source: bytes) -> SymbolTable:
+        raw_symbols = extract_symbols(source, self._lang_name)
         classes: list[SymbolInfo] = []
         functions: list[SymbolInfo] = []
         methods: list[SymbolInfo] = []
         total_methods = 0
 
-        for match in CLASS_RE.finditer(masked):
-            name = match.group(1)
-            line = source.count("\n", 0, match.start()) + 1
-            body = extract_block(masked, source, match.end())
-            method_names = METHOD_RE.findall(body)
-            method_count = len(method_names)
-            total_methods += method_count
-            classes.append(SymbolInfo(
-                name=name,
-                kind="class",
-                line=line,
-                end_line=line,
-                method_count=method_count,
-                complexity=compute_cyclomatic(body) if body else 1,
-                is_abstract=False,
-            ))
-            for method in method_names:
-                methods.append(SymbolInfo(
-                    name=f"{name}.{method}",
-                    kind="method",
-                    line=line,
-                    end_line=line,
-                    complexity=1,
-                ))
+        for sym in raw_symbols:
+            si = SymbolInfo(
+                name=sym.name, kind=sym.kind,
+                line=sym.line, end_line=sym.end_line,
+                complexity=sym.complexity,
+                method_count=sym.method_count,
+                is_abstract=sym.is_abstract,
+            )
+            if sym.kind == "class":
+                classes.append(si)
+                total_methods += sym.method_count
+                for method in sym.methods:
+                    methods.append(SymbolInfo(
+                        name=f"{sym.name}.{method}", kind="method",
+                        line=sym.line, end_line=sym.end_line, complexity=1,
+                    ))
+            elif sym.kind == "function":
+                functions.append(si)
 
-        for match in FUNCTION_RE.finditer(masked):
-            name = match.group(1)
-            line = source.count("\n", 0, match.start()) + 1
-            body = extract_block(masked, source, match.end())
-            functions.append(SymbolInfo(
-                name=name,
-                kind="function",
-                line=line,
-                end_line=line,
-                complexity=compute_cyclomatic(body) if body else 1,
-            ))
-
-        for match in ARROW_RE.finditer(masked):
-            name = match.group(1)
-            line = source.count("\n", 0, match.start()) + 1
-            functions.append(SymbolInfo(
-                name=name,
-                kind="function",
-                line=line,
-                end_line=line,
-                complexity=1,
-            ))
-
-        module_cc = compute_cyclomatic(source)
-        module_cog = compute_cognitive(source)
+        module_cc = compute_cyclomatic(source, self._lang_name)
+        module_cog = compute_cognitive(source, self._lang_name)
 
         return SymbolTable(
-            classes=classes,
-            functions=functions,
-            methods=methods,
-            class_count=len(classes),
-            function_count=len(functions),
-            method_count=total_methods,
-            abstract_class_count=0,
+            classes=classes, functions=functions, methods=methods,
+            class_count=len(classes), function_count=len(functions),
+            method_count=total_methods, abstract_class_count=0,
             cyclomatic_complexity=module_cc,
             cognitive_complexity=module_cog,
         )
-

@@ -1,6 +1,6 @@
 """CLI entry point for Hawkeye.
 
-Commands: analyze, context, impact, show, check, metrics, serve.
+Commands: analyze, context, impact, show, check, metrics, hotspots, serve.
 """
 
 import argparse
@@ -8,8 +8,8 @@ import sys
 
 from .. import __version__
 from ._helpers import ensure_utf8
-from .commands import (run_analyze, run_check, run_context, run_impact,
-                       run_metrics, run_serve, run_show)
+from .commands import (run_analyze, run_check, run_context, run_hotspots,
+                       run_impact, run_metrics, run_serve, run_show)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -266,6 +266,32 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", "-p",
                    help="Pre-analyze this project on startup (recommended)")
 
+    # ── hotspots ──
+    p = sub.add_parser(
+        "hotspots",
+        help="Rank files by complexity × git churn (temporal hotspot analysis)",
+        description=(
+            "Identify the riskiest files by combining static complexity (CC)\n"
+            "with git churn (commit frequency). A file with CC=10 changing daily\n"
+            "is more dangerous than CC=50 unchanged for 6 months.\n\n"
+            "Requires git. Analyzes the last 90 days of git history by default."
+        ),
+        epilog=(
+            "examples:\n"
+            "  hawkeye hotspots ./myproject                 Top 20 hotspots\n"
+            "  hawkeye hotspots ./myproject --limit 10      Top 10 hotspots\n"
+            "  hawkeye hotspots ./myproject --json          Machine-readable\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("project", help="Path to the codebase root")
+    p.add_argument("--limit", type=int, default=20,
+                   help="Max hotspots to display (default: 20)")
+    p.add_argument("--days", type=int, default=90,
+                   help="Git history window in days (default: 90)")
+    p.add_argument("--json", action="store_true", help="Output as JSON")
+    _add_language_options(p)
+
     return parser
 
 
@@ -285,6 +311,7 @@ def main() -> int:
         "show": run_show,
         "check": run_check,
         "metrics": run_metrics,
+        "hotspots": run_hotspots,
         "serve": run_serve,
     }
     handler = handlers.get(args.command)

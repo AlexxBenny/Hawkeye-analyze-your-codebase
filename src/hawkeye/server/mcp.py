@@ -68,15 +68,19 @@ def create_mcp_server():
     mcp = FastMCP(
         "hawkeye",
         instructions=(
-            "Hawkeye analyzes Python/JS/TS codebase architecture. Workflow:\n"
-            "1. hawkeye_analyze(project_path) — scan the project (do this first)\n"
-            "2. hawkeye_file_context(file) — get full context before editing a file\n"
-            "3. hawkeye_context(files) — combined context for multi-file edits\n"
-            "4. hawkeye_impact(file, symbol) — symbol-level blast radius\n"
-            "5. hawkeye_symbols(file) — list symbols defined in a module\n"
-            "Other: hawkeye_find, hawkeye_cycles, hawkeye_metrics, hawkeye_path\n"
-            "AVOID hawkeye_graph on large projects — use hawkeye_file_context instead.\n"
-            "TIP: All context tools default to compact=True for token efficiency."
+            "Hawkeye provides architectural context for Python/JS/TS codebases.\n"
+            "BEFORE editing ANY file, call hawkeye_file_context(file) to check:\n"
+            "- How many modules depend on it (blast radius)\n"
+            "- Its health and risk classification\n"
+            "- Whether it participates in import cycles\n"
+            "If risk is 'hub' or dependent_count >= 5: make minimal changes only.\n"
+            "If health is 'critical': do NOT add complexity, suggest refactoring.\n"
+            "Call hawkeye_analyze(project_path) once at session start.\n"
+            "For multi-file edits: hawkeye_context(files) gives combined blast radius.\n"
+            "Before renaming symbols: hawkeye_impact(file, symbol) shows what breaks.\n"
+            "After adding imports: hawkeye_cycles() verifies no circular deps introduced.\n"
+            "hawkeye_hotspots ranks files by complexity x git churn (real risk).\n"
+            "All tools default to compact=True for token efficiency."
         ),
     )
 
@@ -157,6 +161,9 @@ def create_mcp_server():
 
         This replaces the need to call module_info + dependencies + dependents
         + impact separately.
+
+        If risk='hub' or dependent_count >= 5, make minimal, surgical changes.
+        If health='critical', do not add complexity — refactor instead.
 
         Args:
             file: File path (e.g. 'cortex/intent_engine.py') or
@@ -500,6 +507,66 @@ def create_mcp_server():
                 }
                 | ({"decorators": s.info.decorators} if s.info.decorators else {})
                 for s in symbols
+            ],
+        }
+
+    # ── 11. Git Hotspots ──────────────────────────────────────
+
+    @mcp.tool(annotations=_TOOL_ANNOTATIONS_READONLY)
+    async def hawkeye_hotspots(
+        limit: int = 20,
+        days: int = 90,
+        project_path: str = "",
+    ) -> dict[str, object]:
+        """Rank files by hotspot score = complexity × git churn.
+
+        A file with CC=10 changing daily is more dangerous than CC=50
+        unchanged for 6 months. This tool surfaces the files that are
+        both complex AND actively changing — the real risk.
+
+        Requires git. Returns empty results if not a git repository.
+
+        Args:
+            limit: Max entries to return (default: 20).
+            days: Git history window in days (default: 90). Use 30 for
+                recent activity or 180 for long-term trends.
+            project_path: Optional project path.
+        """
+        import anyio
+
+        engine = _resolve_engine(project_path)
+
+        # Git subprocess calls block — run in a thread to avoid
+        # freezing the MCP stdio event loop.
+        def _compute():
+            return engine.git_hotspots(limit=limit, days=days)
+
+        hotspots, gh = await anyio.to_thread.run_sync(_compute)
+
+        if not gh.available:
+            return {
+                "available": False,
+                "message": "Git history not available (not a git repo or git not installed).",
+            }
+        return {
+            "available": True,
+            "analysis_days": gh.analysis_days,
+            "total_commits": gh.total_commits,
+            "count": len(hotspots),
+            "hotspots": [
+                {
+                    "module": h.module,
+                    "file": h.rel_path,
+                    "hotspot_score": h.hotspot_score,
+                    "cc": h.cyclomatic_complexity,
+                    "commits": h.commit_count,
+                    "lines_changed": h.lines_changed,
+                    "days_since_change": h.days_since_last_change,
+                    "contributors": h.contributor_count,
+                    "churn": h.churn_category,
+                    "health": h.health,
+                }
+                for h in hotspots
             ],
         }
 

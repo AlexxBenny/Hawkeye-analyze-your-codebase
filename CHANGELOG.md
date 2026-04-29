@@ -5,6 +5,56 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-04-29
+
+### Fixed
+- **MCP hotspot deadlock**: `hawkeye_hotspots` was blocking the MCP stdio event loop because `subprocess.run()` ran synchronously in the async handler. Now uses `async def` + `anyio.to_thread.run_sync` to offload git subprocess work to a thread. Response time: <1s.
+- **stdin handle contention**: All git `subprocess.run()` calls use `stdin=subprocess.DEVNULL` to prevent handle inheritance conflicts with MCP stdio transport on Windows.
+
+### Added
+- **`lines_changed` field**: `FileChurn`, `HotspotEntry`, and all outputs (MCP, CLI, file context) now include total lines added + removed per file. A 1-line typo fix no longer scores the same as a 200-line rewrite.
+- **`--numstat` git parsing**: Switched from `--name-only` to `--numstat` for line-level change magnitude data.
+- **`days` parameter**: `hawkeye_hotspots` MCP tool and `hawkeye hotspots` CLI now accept `--days N` (default: 90). Use `--days 30` for recent activity or `--days 180` for long-term trends. Engine caches the 90-day result and computes fresh for other windows.
+- **Rename tracking**: `_extract_rename_target()` resolves git's `{old => new}/path` rename syntax so renamed files aggregate correctly instead of creating ghost entries.
+
+### Changed
+- **MCP instructions rewritten**: From passive workflow list to imperative behavioral rules ("BEFORE editing ANY file, call hawkeye_file_context"). Models follow direct commands more consistently than numbered guides.
+- **`hawkeye_file_context` docstring**: Now includes actionable guidance — "If risk='hub', make minimal changes only."
+- **`engine.git_hotspots()`**: Returns `(hotspots, git_history)` tuple instead of just hotspots. Both callers (MCP, CLI) updated.
+
+### Performance
+- **350 tests** passing. **0 import cycles.**
+- **62 modules**, 9,640 LOC.
+
+## [0.5.0] - 2026-04-29
+
+### ⚠️ Breaking Changes
+- **JS/TS regex parser removed**: The regex-based JS/TS parser (`shared/js_ts_common.py`) has been deleted. JS/TS analysis now requires tree-sitter. This is a correctness decision — regex cannot reliably parse context-free grammars.
+- **Dependencies added**: `pip install hawkeye-analyzer` now installs `mcp`, `tree-sitter`, `tree-sitter-javascript`, and `tree-sitter-typescript` as core dependencies. MCP is the primary pitch; tree-sitter is required for reliable multi-language analysis.
+
+### Added
+- **Tree-sitter JS/TS parsing** (`shared/js_ts_treesitter.py`, 484 LOC): AST-accurate import extraction, symbol detection, and complexity metrics using tree-sitter S-expression queries. Handles all edge cases that broke the regex approach: multi-line imports, template literals, regex literals, `import.meta`, re-exports, `export default`, abstract classes.
+- **Git history & hotspots** (`core/git_history.py`): Zero-dependency git log analysis. Computes `hotspot_score = cyclomatic_complexity × commit_count` (the CodeScene formula). Includes churn classification, rename tracking, timezone handling, and Windows path normalization.
+- **`hawkeye hotspots` CLI command**: Surface the riskiest files by combining complexity with change frequency.
+- **`hawkeye_hotspots` MCP tool**: AI agents can query hotspot data for targeted refactoring recommendations.
+- **Abstract class detection** (TS): Tree-sitter correctly identifies `abstract class` declarations via the `abstract_class_declaration` node type.
+- **TSX grammar support**: `.tsx` files use the dedicated TSX grammar, not the TypeScript grammar, ensuring correct JSX parsing.
+- **43 new git history tests** covering parsing edge cases, churn classification, context integration, Windows paths, timezones, and renamed files.
+
+### Changed
+- **Default install includes everything**: `pip install hawkeye-analyzer` installs MCP + tree-sitter + all language grammars. No extras needed for the standard experience.
+- **`python-only` optional extra**: For constrained environments that only need Python analysis, `pip install hawkeye-analyzer[python-only]` skips tree-sitter.
+- **Registry guards**: `get_language_adapters()` checks for tree-sitter availability before loading JS/TS adapters. Logs a clear message if dependencies are missing.
+- **Separate TS/JS symbol queries**: TS grammar uses `type_identifier` for class names and `abstract_class_declaration` for abstract classes — the queries are grammar-specific, not shared.
+
+### Removed
+- **`shared/js_ts_common.py`**: The 345-LOC regex parser. Replaced entirely by `shared/js_ts_treesitter.py`.
+
+### Performance
+- **350 tests** passing (was 307 in v0.4.0, +43 git history tests).
+- **0 import cycles** in Hawkeye's own codebase.
+- **62 modules**, 9,584 LOC.
+
 ## [0.4.0] - 2026-04-28
 
 ### Added
