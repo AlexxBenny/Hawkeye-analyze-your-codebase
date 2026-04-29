@@ -249,6 +249,7 @@ class HawkeyeEngine:
             days: Git history window in days (default: 90).
         """
         from .core.git_history import analyze_git_history, compute_hotspots
+
         # Use cached history for default window, fresh for custom
         if days == 90:
             gh = self.git_history
