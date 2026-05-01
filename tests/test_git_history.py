@@ -237,8 +237,11 @@ class TestHotspotComputation:
 
         hotspots = compute_hotspots(gh, metrics, index)
         assert len(hotspots) == 2
-        assert hotspots[0].module == "mod_a"  # 20 × 5 = 100
-        assert hotspots[1].module == "mod_b"  # 30 × 2 = 60
+        # Ranking accounts for recency decay: exp(-days/30)
+        # mod_a: 20 × 5 × exp(-3/30) ≈ 90.5
+        # mod_b: 30 × 2 × exp(-10/30) ≈ 43.1
+        assert hotspots[0].module == "mod_a"
+        assert hotspots[1].module == "mod_b"
 
     def test_excludes_zero_commit_files(self):
         gh = GitHistory(
@@ -301,7 +304,10 @@ class TestHotspotComputation:
         h = hotspots[0]
         assert h.module == "mod"
         assert h.rel_path == "core.py"
-        assert h.hotspot_score == 120.0  # 15 × 8
+        # Score = 15 × 8 × exp(-2/30) ≈ 112.3
+        import math
+        expected = round(15 * 8 * math.exp(-2 / 30.0), 1)
+        assert h.hotspot_score == expected
         assert h.commit_count == 8
         assert h.days_since_last_change == 2
         assert h.contributor_count == 3
@@ -411,13 +417,11 @@ class TestContextIntegration:
             ),
         )
 
-        assert "git" in result
-        assert result["git"]["commits"] == 8
-        assert result["git"]["days_since_change"] == 3
-        assert result["git"]["churn"] == "hot"
-        # Compact mode should NOT include contributors or last_changed
-        assert "contributors" not in result["git"]
-        assert "last_changed" not in result["git"]
+        # v0.6 compact: churn is a top-level key, not nested under 'git'
+        assert "churn" in result
+        assert result["churn"] == "hot"
+        # No nested git dict in compact mode
+        assert "git" not in result
 
     def test_git_data_in_full_context(self):
         """Non-compact mode includes extra git fields."""
@@ -460,6 +464,7 @@ class TestContextIntegration:
             git_history=None,
         )
 
+        assert "churn" not in result
         assert "git" not in result
 
     def test_no_git_key_when_file_not_in_history(self):
@@ -482,6 +487,7 @@ class TestContextIntegration:
             ),
         )
 
+        assert "churn" not in result
         assert "git" not in result
 
     def test_no_git_key_when_git_not_available(self):
@@ -501,6 +507,7 @@ class TestContextIntegration:
             git_history=GitHistory(available=False),
         )
 
+        assert "churn" not in result
         assert "git" not in result
 
 

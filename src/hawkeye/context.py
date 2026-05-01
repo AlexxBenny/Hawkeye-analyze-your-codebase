@@ -2,6 +2,13 @@
 
 Extracted from HawkeyeEngine to reduce engine complexity.
 Converts raw graph/metrics/cycle data into AI-agent-ready dicts.
+
+v0.6: Compact mode rewritten for maximum token efficiency.
+  - Flat file paths instead of {module, file, language} objects
+  - Redundant keys eliminated (dependency_count, impact.direct, package)
+  - Metrics flattened to top level with short keys
+  - edit_cost added for AI agent planning
+  - Git churn surfaced in compact mode
 """
 
 from __future__ import annotations
@@ -32,22 +39,20 @@ def build_file_context(
 
     Combines: module info + dependencies + dependents + impact +
     cycle warnings + health metrics + related files + insights + risk +
-    git churn (when available).
+    git churn (when available) + edit cost estimation.
+
+    Compact mode (default) is optimized for token efficiency — ~200 tokens
+    vs ~450 in v0.5.  Non-compact mode retains full detail for CLI/HTML.
 
     Returns:
         Complete context dict.
     """
     from .core.insights import (classify_risk, derive_module_insights,
                                 insights_compact, insights_full)
+    from .core.metrics import compute_edit_cost
 
     node = graph.nodes[module]
     m = module_metrics.get(module)
-
-    # Dependencies (what this module imports)
-    deps = _build_dependency_list(module, graph, compact)
-
-    # Dependents (what imports this module)
-    dependents = _build_dependent_list(module, graph)
 
     # Transitive impact
     transitive = graph.get_transitive_dependents(module)
@@ -55,8 +60,179 @@ def build_file_context(
     # Cycles involving this module
     cycles = [c for c in cycle_report.cycles if module in c.path[:-1]]
 
-    # Related files: cycle partners + shared-dependency neighbors
+    # ── Compact mode: maximum token efficiency ────────────────
+    if compact:
+        return _build_compact_context(
+            module=module,
+            node=node,
+            m=m,
+            graph=graph,
+            module_metrics=module_metrics,
+            transitive=transitive,
+            cycles=cycles,
+            cycle_report=cycle_report,
+            config=config,
+            git_history=git_history,
+            insights_compact_fn=insights_compact,
+            derive_fn=derive_module_insights,
+            classify_fn=classify_risk,
+            edit_cost_fn=compute_edit_cost,
+        )
+
+    # ── Non-compact mode: full detail for CLI/renderers ───────
+    return _build_full_context(
+        module=module,
+        node=node,
+        m=m,
+        graph=graph,
+        module_metrics=module_metrics,
+        transitive=transitive,
+        cycles=cycles,
+        cycle_report=cycle_report,
+        symbol_tables=symbol_tables,
+        config=config,
+        git_history=git_history,
+        insights_full_fn=insights_full,
+        derive_fn=derive_module_insights,
+        classify_fn=classify_risk,
+    )
+
+
+def _build_compact_context(
+    *,
+    module, node, m, graph, module_metrics, transitive,
+    cycles, cycle_report, config, git_history,
+    insights_compact_fn, derive_fn, classify_fn, edit_cost_fn,
+) -> dict:
+    """Token-efficient compact context for AI agents (~200 tokens).
+
+    Design principles:
+      - File path as primary identifier (not FQDN module name)
+      - Flat string lists for deps/dependents (not object arrays)
+      - Metrics at top level with short keys (not nested)
+      - Only include keys that aid editing decisions
+    """
+    # Flat dependency/dependent lists — just file paths
+    deps = sorted(
+        graph.nodes[d].rel_path
+        for d in graph.get_dependencies(module)
+        if d in graph.nodes
+    )
+    dependents = sorted(
+        graph.nodes[d].rel_path
+        for d in graph.get_dependents(module)
+        if d in graph.nodes
+    )
+
+    result: dict = {
+        "v": "0.6",
+        "file": node.rel_path,
+        "loc": node.loc,
+    }
+
+    if m:
+        # Role info (only when non-default)
+        if m.role != "source":
+            result["role"] = m.role
+        if m.arch_role:
+            result["arch_role"] = m.arch_role
+
+        # Health + core metrics at top level, short keys
+        result["health"] = m.health
+        result["cc"] = m.cyclomatic_complexity
+        result["cog"] = m.cognitive_complexity
+        result["ca"] = m.ca
+        result["ce"] = m.ce
+        result["I"] = m.instability
+
+        if m.parse_error:
+            result["parse_error"] = True
+
+    result["deps"] = deps
+    result["dependents"] = dependents
+    result["transitive_impact"] = len(transitive)
+
+    # Edit cost estimation — the key AI-agent field
+    edit_cost = edit_cost_fn(
+        module, graph, module_metrics,
+        token_ratios=config.thresholds.token_ratios,
+        git_history=git_history,
+    )
+    result["edit_cost"] = edit_cost
+
+    # Cycles (compact: just paths)
+    if cycles:
+        result["cycles"] = [
+            {"path": cyc.path, "kind": cyc.kind}
+            for cyc in cycles
+        ]
+
+    # Insights — just codes
+    t = config.thresholds
+    arch_role = m.arch_role if m else ""
+    insights = derive_fn(
+        instability=m.instability if m else 0.0,
+        ca=m.ca if m else 0,
+        ce=m.ce if m else 0,
+        cyclomatic=m.cyclomatic_complexity if m else 1,
+        cognitive=m.cognitive_complexity if m else 0,
+        loc=node.loc,
+        direct_dependents=len(dependents),
+        transitive_dependents=len(transitive),
+        cycle_count=len(cycles),
+        max_cycle_size=max((len(c.path) - 1 for c in cycles), default=0),
+        abstractness=m.abstractness if m else 0.0,
+        distance_main_seq=m.distance_main_seq if m else 0.0,
+        class_count=m.class_count if m else 0,
+        parse_error=m.parse_error if m else False,
+        thresholds=t,
+        arch_role=arch_role,
+    )
+    if insights:
+        result["insights"] = insights_compact_fn(insights)
+
+    # Risk profile (1 token)
+    risk = classify_fn(
+        instability=m.instability if m else 0.0,
+        ca=m.ca if m else 0,
+        ce=m.ce if m else 0,
+        cyclomatic=m.cyclomatic_complexity if m else 1,
+        cognitive=m.cognitive_complexity if m else 0,
+        direct_dependents=len(dependents),
+        transitive_dependents=len(transitive),
+        cycle_count=len(cycles),
+        thresholds=t,
+    )
+    if risk:
+        result["risk"] = risk
+
+    # Git churn — single category label in compact mode
+    if git_history and git_history.available:
+        node_path = node.rel_path.replace("\\", "/")
+        churn = git_history.files.get(node_path)
+        if churn:
+            result["churn"] = churn.churn_category
+
+    # Related files — just paths in compact mode
     related = compute_related(module, graph, cycle_report)
+    if related:
+        result["related"] = [r["file"] for r in related]
+
+    return result
+
+
+def _build_full_context(
+    *,
+    module, node, m, graph, module_metrics, transitive,
+    cycles, cycle_report, symbol_tables, config, git_history,
+    insights_full_fn, derive_fn, classify_fn,
+) -> dict:
+    """Full-detail context for CLI, HTML renderers, and debugging.
+
+    Preserves v0.5 format for backward compatibility with non-MCP consumers.
+    """
+    deps = _build_dependency_list(module, graph, compact=False)
+    dependents = _build_dependent_list(module, graph)
 
     result: dict = {
         "module": module,
@@ -88,6 +264,10 @@ def build_file_context(
         }
         if m.parse_error:
             metrics_dict["parse_error"] = True
+        if m.role != "source":
+            metrics_dict["role"] = m.role
+        if m.arch_role:
+            metrics_dict["arch_role"] = m.arch_role
         result["metrics"] = metrics_dict
 
     if cycles:
@@ -99,17 +279,11 @@ def build_file_context(
                 "break_at": cyc.break_suggestion,
             }
             for cyc in cycles
-        ] if not compact else [
-            {
-                "path": cyc.path,
-                "kind": cyc.kind,
-            }
-            for cyc in cycles
         ]
 
-    # Symbol details (non-compact mode)
+    # Symbol details (non-compact mode only)
     st = symbol_tables.get(module)
-    if st and not compact:
+    if st:
         result["symbols"] = {
             "classes": [
                 {"name": s.name, "line": s.line,
@@ -122,12 +296,14 @@ def build_file_context(
             ],
         }
 
+    related = compute_related(module, graph, cycle_report)
     if related:
         result["related_files"] = related
 
-    # ── Layer 2: Deterministic insights ────────────────
+    # Insights — full detail
     t = config.thresholds
-    insights = derive_module_insights(
+    arch_role = m.arch_role if m else ""
+    insights = derive_fn(
         instability=m.instability if m else 0.0,
         ca=m.ca if m else 0,
         ce=m.ce if m else 0,
@@ -143,15 +319,12 @@ def build_file_context(
         class_count=m.class_count if m else 0,
         parse_error=m.parse_error if m else False,
         thresholds=t,
+        arch_role=arch_role,
     )
     if insights:
-        result["insights"] = (
-            insights_compact(insights) if compact
-            else insights_full(insights)
-        )
+        result["insights"] = insights_full_fn(insights)
 
-    # Risk profile: single self-describing label (1 token)
-    risk = classify_risk(
+    risk = classify_fn(
         instability=m.instability if m else 0.0,
         ca=m.ca if m else 0,
         ce=m.ce if m else 0,
@@ -165,21 +338,19 @@ def build_file_context(
     if risk:
         result["risk"] = risk
 
-    # ── Layer 4: Git churn (when available) ─────────────
+    # Git churn (full detail in non-compact)
     if git_history and git_history.available:
-        node_path = graph.nodes[module].rel_path.replace("\\", "/")
+        node_path = node.rel_path.replace("\\", "/")
         churn = git_history.files.get(node_path)
         if churn:
-            git_data: dict = {
+            result["git"] = {
                 "commits": churn.commit_count,
                 "lines_changed": churn.lines_changed,
                 "days_since_change": churn.days_since_last_change,
                 "churn": churn.churn_category,
+                "contributors": churn.contributor_count,
+                "last_changed": churn.last_changed,
             }
-            if not compact:
-                git_data["contributors"] = churn.contributor_count
-                git_data["last_changed"] = churn.last_changed
-            result["git"] = git_data
 
     return result
 
@@ -229,14 +400,22 @@ def build_batch_context(
             config=config,
             compact=compact,
         )
-        file_contexts.append({
-            "module": ctx["module"],
-            "language": ctx.get("language", "python"),
-            "file": ctx["file"],
-            "health": ctx.get("metrics", {}).get("health", "unknown"),
-            "dependency_count": ctx["dependency_count"],
-            "dependent_count": ctx["dependent_count"],
-        })
+        if compact:
+            file_contexts.append({
+                "file": ctx["file"],
+                "health": ctx.get("health", "unknown"),
+                "cc": ctx.get("cc", 0),
+                "risk": ctx.get("risk", ""),
+            })
+        else:
+            file_contexts.append({
+                "module": ctx.get("module", module),
+                "language": ctx.get("language", "python"),
+                "file": ctx["file"],
+                "health": ctx.get("metrics", {}).get("health", "unknown"),
+                "dependency_count": ctx.get("dependency_count", 0),
+                "dependent_count": ctx.get("dependent_count", 0),
+            })
         all_deps |= graph.get_dependencies(module)
         all_dependents |= graph.get_dependents(module)
         all_transitive |= graph.get_transitive_dependents(module)

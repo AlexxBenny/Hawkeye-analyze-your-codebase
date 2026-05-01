@@ -110,6 +110,19 @@ class ThresholdConfig:
     abstract_high: float = 0.8     # A ≥ this → highly abstract
     abstract_low: float = 0.2      # A ≤ this → concrete
 
+    # ── Percentile-based adaptive thresholds ──
+    use_percentiles: bool = True    # Adapt thresholds to project distribution
+    cc_floor_critical: int = 30    # Absolute minimum for "critical" (prevents
+                                    # tiny projects from having meaningless criticals)
+    cc_floor_high: int = 15
+    cog_floor_critical: int = 30
+    cog_floor_high: int = 15
+
+    # ── Token estimation ratios by language ──
+    token_ratios: dict = field(
+        default_factory=lambda: {"python": 2.3, "javascript": 2.0, "typescript": 2.1},
+    )
+
     @classmethod
     def strict(cls) -> "ThresholdConfig":
         """Lower thresholds — more warnings, catches issues early."""

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Pre-commit hook: run isort check before allowing commit.
+# Blocks commits with unsorted imports.
+
+python -m isort --check-only src/ tests/
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "Fix with: python -m isort src/ tests/"
+    echo ""
+    exit 1
+fi

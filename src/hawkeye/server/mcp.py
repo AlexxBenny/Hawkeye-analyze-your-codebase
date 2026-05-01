@@ -70,11 +70,14 @@ def create_mcp_server():
         instructions=(
             "Hawkeye provides architectural context for Python/JS/TS codebases.\n"
             "BEFORE editing ANY file, call hawkeye_file_context(file) to check:\n"
-            "- How many modules depend on it (blast radius)\n"
+            "- How many modules depend on it (blast radius via edit_cost.files)\n"
             "- Its health and risk classification\n"
             "- Whether it participates in import cycles\n"
-            "If risk is 'hub' or dependent_count >= 5: make minimal changes only.\n"
-            "If health is 'critical': do NOT add complexity, suggest refactoring.\n"
+            "If risk='hub' WITHOUT arch_role: make minimal changes only.\n"
+            "If risk='hub' WITH arch_role='core': this is central by design —\n"
+            "  changes ARE expected, but verify interfaces with hawkeye_impact().\n"
+            "If health='critical' on role='test': normal — test files have high CC.\n"
+            "If health='critical' on role='source': prefer surgical changes.\n"
             "Call hawkeye_analyze(project_path) once at session start.\n"
             "For multi-file edits: hawkeye_context(files) gives combined blast radius.\n"
             "Before renaming symbols: hawkeye_impact(file, symbol) shows what breaks.\n"
@@ -162,8 +165,15 @@ def create_mcp_server():
         This replaces the need to call module_info + dependencies + dependents
         + impact separately.
 
-        If risk='hub' or dependent_count >= 5, make minimal, surgical changes.
-        If health='critical', do not add complexity — refactor instead.
+        v0.6 compact format includes:
+          - edit_cost: {files, cascade, tokens, risk} for planning
+          - role: 'test'/'init'/'config'/'source' for threshold context
+          - arch_role: 'core'/'orchestrator'/'hub-by-design' when applicable
+          - Flat file paths for deps/dependents (token-efficient)
+
+        If risk='hub' and arch_role is absent: make minimal, surgical changes.
+        If risk='hub' and arch_role='core': changes expected, verify interfaces.
+        If health='critical' and role='test': normal (test CC is not risk).
 
         Args:
             file: File path (e.g. 'cortex/intent_engine.py') or

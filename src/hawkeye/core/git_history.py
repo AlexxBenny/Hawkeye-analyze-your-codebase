@@ -118,13 +118,15 @@ def compute_hotspots(
     file_index: dict,
     limit: int = 20,
 ) -> list[HotspotEntry]:
-    """Compute hotspot ranking: complexity × churn.
+    """Compute hotspot ranking: complexity × churn × recency.
 
     The insight: CC=38 on a file that hasn't changed in 6 months is
     low priority. CC=10 on a file changing daily is dangerous.
 
-    Hotspot score = cyclomatic_complexity × commit_count.
-    This is the CodeScene formula that makes temporal analysis valuable.
+    Hotspot score = cyclomatic_complexity × commit_count × recency_decay.
+    Recency decay = exp(-days_since_last_change / 30), so recent changes
+    dominate and old hotspots fade.  This prevents stale files from
+    permanently ranking high.
 
     Args:
         git_history: Output from analyze_git_history().
@@ -132,6 +134,8 @@ def compute_hotspots(
         file_index: Dict of module_name → ModuleInfo.
         limit: Maximum entries to return.
     """
+    import math
+
     if not git_history.available:
         return []
 
@@ -147,7 +151,8 @@ def compute_hotspots(
         if not churn or churn.commit_count == 0:
             continue
 
-        score = metrics.cyclomatic_complexity * churn.commit_count
+        recency_factor = math.exp(-churn.days_since_last_change / 30.0)
+        score = metrics.cyclomatic_complexity * churn.commit_count * recency_factor
         entries.append(HotspotEntry(
             module=module_name,
             rel_path=rel,

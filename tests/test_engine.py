@@ -154,12 +154,13 @@ class TestEngineFileContext:
 
         ctx = engine.get_file_context(views_mod[0])
         assert ctx is not None
-        assert "module" in ctx
         assert "file" in ctx
-        assert "dependencies" in ctx
+        assert "deps" in ctx
         assert "dependents" in ctx
-        assert "impact" in ctx
-        assert "dependency_count" in ctx
+        assert "transitive_impact" in ctx
+        assert "edit_cost" in ctx
+        assert "v" in ctx
+        assert ctx["v"] == "0.6"
 
     def test_returns_none_for_unknown(self, tmp_project: Path):
         engine = HawkeyeEngine()
@@ -185,12 +186,12 @@ class TestEngineFileContext:
         mod = list(engine.graph.nodes.keys())[0]
         ctx = engine.get_file_context(mod)
 
-        if "metrics" in ctx:
-            m = ctx["metrics"]
-            assert "ca" in m
-            assert "ce" in m
-            assert "instability" in m
-            assert "health" in m
+        # v0.6 compact: metrics are at top level with short keys
+        assert "health" in ctx
+        assert "ca" in ctx
+        assert "ce" in ctx
+        assert "I" in ctx
+        assert "cc" in ctx
 
 
 class TestEngineBatchContext:

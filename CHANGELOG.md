@@ -5,6 +5,41 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-01
+
+### ⚠️ Breaking Changes
+- **Compact `hawkeye_file_context` format rewritten (v0.6)**:
+  - `dependencies` → `deps` (flat file path list, not object array)
+  - `dependents` → flat file path list
+  - `metrics` dict removed — `health`, `cc`, `cog`, `ca`, `ce`, `I` are now top-level keys
+  - `module`, `package`, `dependency_count`, `impact` keys removed (redundant)
+  - `git` dict removed from compact — replaced by top-level `churn` label
+  - New keys: `v` (format version), `edit_cost`, `role`, `arch_role`, `related`
+  - Non-compact mode (`compact=False`) retains full v0.5 format for CLI/HTML
+- **Health distribution shift**: Percentile-based thresholds produce different health classifications. Projects will see fewer `critical` labels (by design — this eliminates alarm fatigue).
+- **Hotspot score formula changed**: Now `CC × commits × exp(-days/30)`. Old scores were `CC × commits`. Recency decay means stale hotspots rank lower.
+
+### Added
+- **Adaptive percentile thresholds**: Health scoring now calibrates to each project's CC/Cog distribution using P95/P90/P80/P60 percentiles with configurable absolute floors. A module is only `critical` if it's in the top 5% of its project — not by arbitrary universal constants. Configurable via `use_percentiles`, `cc_floor_critical`, `cc_floor_high`, `cog_floor_critical`, `cog_floor_high` in `ThresholdConfig`.
+- **Module role classification**: Every module is tagged as `test`, `init`, `config`, or `source`. Test files get 3× relaxed CC thresholds (CC=75 is 75 test methods, not 75 branches). Init/config files get 1.5× relaxation.
+- **Architectural role classification**: Modules are classified as `core` (foundational, high Ca), `orchestrator` (high betweenness centrality, coordinates subsystems), or `hub-by-design` (`__init__.py` re-export hubs). Uses Brandes' betweenness centrality algorithm + Ca percentile rank — not fragile heuristics.
+- **`core_module` insight**: Replaces `zone_of_pain` for modules with `arch_role: core` or `hub-by-design`. A core module being concrete + stable is architecture, not pain.
+- **Betweenness centrality** (`graph.betweenness_centrality()`): Brandes' O(VE) algorithm computing normalized centrality scores for all nodes. Used for architectural role classification.
+- **`compute_edit_cost()`**: Estimates editing cost for AI agents — returns `{files, cascade, tokens, risk}` where `tokens` is LOC × language-specific ratio for the module + all direct dependents.
+- **Token estimation ratios**: Configurable per-language LOC-to-token ratios (`python: 2.3`, `javascript: 2.0`, `typescript: 2.1`) in `ThresholdConfig.token_ratios`.
+- **Recency decay in hotspots**: Hotspot score now uses `exp(-days_since_last_change / 30)` decay factor. A CC=38 file unchanged for 89 days no longer outranks a CC=10 file changed yesterday.
+- **`v` key in compact output**: Format version `"0.6"` for contract stability.
+
+### Changed
+- **Critical modules: 22 → 5** on Hawkeye's own codebase (62 modules). The 17 modules that dropped were test files and modules that were "critical" only by arbitrary static thresholds, not by their project-relative distribution.
+- **MCP instructions**: Rewritten for role-aware guidance. `hub` with `arch_role=core` means "changes expected, verify interfaces" not "avoid touching." `critical` on `role=test` is flagged as normal.
+- **`hawkeye_file_context` docstring**: Documents v0.6 compact format, `edit_cost`, `role`, `arch_role`.
+- **`derive_module_insights`**: Accepts `arch_role` parameter. Suppresses `zone_of_pain` for core/hub-by-design modules.
+
+### Performance
+- **350 tests** passing. **0 import cycles.**
+- **62 modules**, 10,112 LOC.
+
 ## [0.5.1] - 2026-04-29
 
 ### Fixed

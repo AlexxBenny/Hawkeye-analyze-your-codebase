@@ -96,39 +96,39 @@ The AI editor now has access to 12 architectural intelligence tools. The most im
 hawkeye_file_context("src/core/engine.py")
 ```
 
-Returns everything the agent needs in **one call**:
+Returns everything the agent needs in **one call** (v0.6 compact format):
 
 ```json
 {
-  "module": "myapp.core.engine",
+  "v": "0.6",
   "file": "core/engine.py",
   "loc": 340,
-  "dependency_count": 3,
-  "dependent_count": 8,
-  "dependencies": [
-    {"module": "myapp.core.scanner", "file": "core/scanner.py"},
-    {"module": "myapp.core.analyzer", "file": "core/analyzer.py"}
+  "arch_role": "orchestrator",
+  "health": "elevated",
+  "cc": 36,
+  "cog": 66,
+  "ca": 2,
+  "ce": 6,
+  "I": 0.75,
+  "deps": [
+    "core/scanner.py",
+    "core/analyzer.py",
+    "core/graph.py"
   ],
   "dependents": [
-    {"module": "myapp.cli", "file": "cli.py"},
-    {"module": "myapp.server.mcp", "file": "server/mcp.py"}
+    "cli.py",
+    "server/mcp.py"
   ],
-  "impact": {"direct": 8, "transitive": 12},
-  "metrics": {
-    "ca": 8, "ce": 3, "instability": 0.273,
-    "health": "critical",
-    "cyclomatic_complexity": 45,
-    "cognitive_complexity": 32
+  "transitive_impact": 12,
+  "edit_cost": {
+    "files": 2,
+    "cascade": 12,
+    "tokens": 4280,
+    "risk": "medium"
   },
-  "insights": ["extreme_cyclomatic", "critical_blast_radius"],
+  "insights": ["high_cyclomatic", "wide_transitive_reach"],
   "risk": "hub",
-  "cycles": [],
-  "git": {
-    "commits": 8,
-    "lines_changed": 420,
-    "days_since_change": 2,
-    "churn": "hot"
-  }
+  "churn": "hot"
 }
 ```
 
@@ -141,21 +141,22 @@ Hawkeye is built specifically for AI agent consumption:
 | Principle | How |
 |-----------|-----|
 | **Deterministic** | Same code → same output. No randomness, no LLM in the loop. Pure AST + graph algorithms. |
-| **Token-efficient** | Compact mode (default) strips verbose fields. A healthy module adds ~5 tokens. A problematic one adds ~30. Zero wasted tokens on modules with no issues. |
+| **Token-efficient** | v0.6 compact format: flat paths, short keys. ~120 tokens for a healthy module, ~200 for a complex one. |
 | **One-call context** | `hawkeye_file_context` replaces 5+ separate queries. One tool call = full architectural picture. |
+| **Adaptive metrics** | Health thresholds calibrate to each project's percentile distribution. No universal magic numbers. |
+| **Architecture-aware** | Betweenness centrality + Ca percentile classify modules as `core`, `orchestrator`, or `hub-by-design`. A core module being complex is expected, not alarming. |
 | **Fast** | Single-pass AST parsing. 281 modules analyzed in ~5 seconds. Results cached for the session. |
 | **Lightweight** | Pure Python AST for Python, tree-sitter for JS/TS. Minimal dependencies, fast install. |
-| **Machine-readable** | Every output is structured JSON. Insight codes are enumerated strings, not natural language. Risk profiles are single-token labels. |
 
 ### Token Budget
 
 | Scenario | Tokens added to context |
 |----------|------------------------|
-| Healthy module, no issues | ~80 tokens |
-| Module with warnings | ~150 tokens |
+| Healthy module, no issues | ~120 tokens |
+| Module with warnings | ~180 tokens |
 | Critical module with cycles | ~250 tokens |
-| Batch context (3 files) | ~400 tokens |
-| Git block in file context | ~17 tokens |
+| Batch context (3 files) | ~350 tokens |
+| Git churn in compact mode | ~3 tokens |
 | Hotspot ranking (5 files) | ~262 tokens |
 
 Compare this to dumping raw `import` statements or `grep` results — Hawkeye gives the AI **structured, pre-analyzed** architectural data at a fraction of the token cost.
@@ -210,7 +211,8 @@ Machine-readable labels derived deterministically from metrics. No natural langu
 | `high_blast_radius` | warning | ≥5 modules directly depend on this |
 | `very_large_module` | warning | ≥500 LOC |
 | `in_cycle` | critical/warning | Involved in an import cycle |
-| `zone_of_pain` | warning | Concrete + stable = rigid, hard to extend |
+| `zone_of_pain` | warning | Concrete + stable = rigid, hard to extend (non-core modules only) |
+| `core_module` | info | Core architectural component — concrete + stable by design |
 | `zone_of_uselessness` | warning | Abstract + unstable = possibly unused abstractions |
 | `well_balanced` | info | On the main sequence (good A/I balance) |
 | `isolated` | info | No internal dependencies or dependents |
@@ -223,7 +225,7 @@ Single-token classification of a module's structural role:
 
 | Label | Meaning | Agent should... |
 |-------|---------|-----------------|
-| `hub` | High dependents + high complexity | Edit with extreme care — many things break |
+| `hub` | High dependents + high complexity | Check `arch_role` — if `core`, verify interfaces; if absent, edit with extreme care |
 | `tangled` | Involved in import cycles | Fix the cycle before adding more imports |
 | `fragile` | High complexity + high instability | Likely to break — add tests first |
 | `volatile` | High instability + many outgoing deps | Unstable foundation — minimize changes |
@@ -359,13 +361,26 @@ add = ["my_framework.endpoint", "register_handler"]  # merged with defaults
 
 ### Threshold Tuning
 
-All 18 thresholds are configurable. Choose a profile, then override individual values:
+By default, Hawkeye uses **adaptive percentile thresholds** that calibrate to each project's complexity distribution. A module is only `critical` if it's in the top 5% of its project — not by arbitrary universal constants.
+
+To disable percentiles and use fixed thresholds:
 
 ```toml
 [thresholds]
-profile = "strict"    # "default", "strict", or "relaxed"
-cc_critical = 40      # Override: relax cyclomatic critical for this project
-loc_critical = 600    # Override: allow larger modules
+use_percentiles = false   # Fall back to static thresholds
+profile = "strict"         # "default", "strict", or "relaxed"
+cc_critical = 40           # Override individual values
+loc_critical = 600
+```
+
+Percentile floors prevent tiny projects from having meaningless criticals:
+
+```toml
+[thresholds]
+cc_floor_critical = 30    # Minimum CC for "critical" even if P95 is lower
+cc_floor_high = 15
+cog_floor_critical = 30
+cog_floor_high = 15
 ```
 
 | Profile | CC warn/crit | Cog warn/crit | LOC warn/crit | Dependents warn/crit |
@@ -374,21 +389,26 @@ loc_critical = 600    # Override: allow larger modules
 | **strict** | 10 / 30 | 15 / 30 | 200 / 300 | 3 / 5 |
 | **relaxed** | 30 / 80 | 40 / 80 | 500 / 1000 | 10 / 20 |
 
-The active profile is embedded in JSON output (`threshold_profile` field) for reproducibility.
+> **Note:** When `use_percentiles = true` (default), these static values serve as fallback floors. The actual thresholds are computed from your project's CC/Cog distribution.
 
 <details>
-<summary>All 18 threshold keys</summary>
+<summary>All threshold keys</summary>
 
 | Key | Default | Controls |
 |-----|---------|----------|
+| `use_percentiles` | true | Enable adaptive percentile-based thresholds |
+| `cc_floor_critical` | 30 | Minimum CC for critical (percentile floor) |
+| `cc_floor_high` | 15 | Minimum CC for high (percentile floor) |
+| `cog_floor_critical` | 30 | Minimum Cog for critical (percentile floor) |
+| `cog_floor_high` | 15 | Minimum Cog for high (percentile floor) |
 | `instability_high` | 0.8 | `high_instability` insight trigger |
 | `instability_low` | 0.2 | `highly_stable` insight trigger |
 | `ce_high` | 8 | Efferent coupling warning |
 | `ca_high` | 8 | Afferent coupling warning |
-| `cc_high` | 20 | Cyclomatic → warning |
-| `cc_critical` | 50 | Cyclomatic → critical |
-| `cog_high` | 25 | Cognitive → warning |
-| `cog_critical` | 50 | Cognitive → critical |
+| `cc_high` | 20 | Cyclomatic → warning (static fallback) |
+| `cc_critical` | 50 | Cyclomatic → critical (static fallback) |
+| `cog_high` | 25 | Cognitive → warning (static fallback) |
+| `cog_critical` | 50 | Cognitive → critical (static fallback) |
 | `loc_high` | 300 | `large_module` insight |
 | `loc_critical` | 500 | `very_large_module` insight |
 | `dependents_high` | 5 | Blast radius → warning |
@@ -425,6 +445,7 @@ Source files (Py/JS/TS) → Language-specific parsing → Import resolution → 
 - **Tarjan's SCC** for cycle detection — O(V+E), mathematically optimal
 - **Import classification** — distinguishes `runtime`, `TYPE_CHECKING`, and `deferred` imports for intelligent cycle triage
 - **BFS reachability** for transitive impact — cached per session
+- **Brandes' algorithm** for betweenness centrality — O(VE), identifies architectural bridges
 - **Robert C. Martin's metrics** — Ca, Ce, Instability, Abstractness, Distance
 - **SonarSource spec** for cognitive complexity — nesting-weighted, not just branch counting
 - **LOC = code lines only** — blank lines and `#` comment lines are excluded. A file with 1,800 raw lines may report ~1,400 LOC. This is the more useful metric for complexity assessment
@@ -486,7 +507,7 @@ src/hawkeye/
     └── json_renderer.py    # Structured JSON
 ```
 
-62 modules, 9,640 LOC, 0 import cycles. 350 tests across 12 test files. Python 3.10+.
+62 modules, 10,112 LOC, 0 import cycles. 350 tests across 12 test files. Python 3.10+.
 
 ## License
 

@@ -9,8 +9,8 @@ from .graph import DependencyGraph
 from .insights import (Insight, classify_risk, derive_module_insights,
                        insights_compact, insights_full)
 from .metrics import (ModuleMetrics, ProjectMetrics, calculate_module_metrics,
-                      calculate_project_metrics, format_metrics_table,
-                      sort_metrics)
+                      calculate_project_metrics, compute_edit_cost,
+                      format_metrics_table, sort_metrics)
 from .models import ModuleInfo
 from .rules import Violation, check_all_rules
 from .scanner import scan_project
@@ -23,7 +23,7 @@ __all__ = [
     "DependencyGraph",
     "ModuleMetrics", "ProjectMetrics",
     "calculate_module_metrics", "calculate_project_metrics",
-    "format_metrics_table", "sort_metrics",
+    "compute_edit_cost", "format_metrics_table", "sort_metrics",
     "CycleReport", "detect_cycles",
     "Violation", "check_all_rules",
     "Insight", "classify_risk", "derive_module_insights",

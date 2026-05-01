@@ -176,6 +176,58 @@ class DependencyGraph:
             frontier = next_frontier
         return result
 
+    # ── Centrality ─────────────────────────────────────────────────
+
+    def betweenness_centrality(self) -> dict[str, float]:
+        """Compute betweenness centrality for all nodes (Brandes' algorithm).
+
+        Measures the fraction of shortest paths that pass through each node.
+        High betweenness = structurally central (bridge between subgraphs).
+        Returns normalized scores in [0, 1].
+        """
+        nodes = list(self.nodes)
+        centrality: dict[str, float] = {n: 0.0 for n in nodes}
+
+        for source in nodes:
+            # BFS from source
+            stack: list[str] = []
+            predecessors: dict[str, list[str]] = {n: [] for n in nodes}
+            sigma: dict[str, int] = {n: 0 for n in nodes}
+            dist: dict[str, int] = {n: -1 for n in nodes}
+            sigma[source] = 1
+            dist[source] = 0
+            queue = deque([source])
+
+            while queue:
+                v = queue.popleft()
+                stack.append(v)
+                for w in self.adjacency.get(v, set()):
+                    if dist[w] < 0:
+                        queue.append(w)
+                        dist[w] = dist[v] + 1
+                    if dist[w] == dist[v] + 1:
+                        sigma[w] += sigma[v]
+                        predecessors[w].append(v)
+
+            # Back-propagation of dependencies
+            delta: dict[str, float] = {n: 0.0 for n in nodes}
+            while stack:
+                w = stack.pop()
+                for v in predecessors[w]:
+                    if sigma[w] > 0:
+                        delta[v] += (sigma[v] / sigma[w]) * (1 + delta[w])
+                if w != source:
+                    centrality[w] += delta[w]
+
+        # Normalize
+        n = len(nodes)
+        if n > 2:
+            scale = 1.0 / ((n - 1) * (n - 2))
+            for v in centrality:
+                centrality[v] *= scale
+
+        return centrality
+
     # ── Filtering ──────────────────────────────────────────────────
 
     def filtered(

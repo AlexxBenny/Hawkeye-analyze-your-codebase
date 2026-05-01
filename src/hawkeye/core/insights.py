@@ -114,6 +114,7 @@ INSIGHT_SEVERITY: dict[str, str] = {
     "isolated": "info",
     "high_fan_out": "info",
     "wide_transitive_reach": "info",
+    "core_module": "info",
 }
 
 
@@ -352,11 +353,16 @@ def _derive_zones(
     abstractness: float, instability: float, distance: float,
     class_count: int,
     t: "ThresholdConfig",
+    arch_role: str = "",
 ) -> list[Insight]:
     """Derive insights from position on the A/I main sequence.
 
     Only fires for modules with classes (A is meaningless without them).
     Uses ThresholdConfig for all numeric decisions.
+
+    When ``arch_role`` is 'core' or 'hub-by-design', suppresses
+    zone_of_pain and emits a neutral 'core_module' insight instead —
+    because a core module being concrete + stable is by design, not pain.
     """
     if class_count == 0:
         return []
@@ -366,17 +372,31 @@ def _derive_zones(
     if distance >= t.distance_high:
         # Zone of Pain: concrete + stable = rigid
         if abstractness <= t.abstract_low and instability <= 0.3:
-            results.append(Insight(
-                code="zone_of_pain",
-                severity="warning",
-                metric="distance_main_seq",
-                value=distance,
-                threshold=t.distance_high,
-                detail=(
-                    f"D={distance:.2f}: concrete (A={abstractness:.2f}) "
-                    f"+ stable (I={instability:.2f}) — rigid, hard to extend"
-                ),
-            ))
+            if arch_role in ("core", "hub-by-design"):
+                # Intentionally central — not pain, just foundational
+                results.append(Insight(
+                    code="core_module",
+                    severity="info",
+                    metric="distance_main_seq",
+                    value=distance,
+                    threshold=t.distance_high,
+                    detail=(
+                        f"D={distance:.2f}: concrete (A={abstractness:.2f}) "
+                        f"+ stable (I={instability:.2f}) — core architectural component"
+                    ),
+                ))
+            else:
+                results.append(Insight(
+                    code="zone_of_pain",
+                    severity="warning",
+                    metric="distance_main_seq",
+                    value=distance,
+                    threshold=t.distance_high,
+                    detail=(
+                        f"D={distance:.2f}: concrete (A={abstractness:.2f}) "
+                        f"+ stable (I={instability:.2f}) — rigid, hard to extend"
+                    ),
+                ))
         # Zone of Uselessness: abstract + unstable = unused
         elif abstractness >= t.abstract_high and instability >= 0.7:
             results.append(Insight(
@@ -427,6 +447,7 @@ def derive_module_insights(
     class_count: int = 0,
     parse_error: bool = False,
     thresholds: Optional["ThresholdConfig"] = None,
+    arch_role: str = "",
 ) -> list[Insight]:
     """Derive all deterministic insights for a single module.
 
@@ -444,7 +465,10 @@ def derive_module_insights(
     insights.extend(_derive_blast_radius(direct_dependents, transitive_dependents, t))
     insights.extend(_derive_cycle(cycle_count, max_cycle_size, t))
     insights.extend(_derive_dependency_fan(ce, t))
-    insights.extend(_derive_zones(abstractness, instability, distance_main_seq, class_count, t))
+    insights.extend(_derive_zones(
+        abstractness, instability, distance_main_seq, class_count, t,
+        arch_role=arch_role,
+    ))
 
     # Sort: critical first, then warning, then info
     severity_order = {"critical": 0, "warning": 1, "info": 2}
