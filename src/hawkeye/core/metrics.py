@@ -118,7 +118,7 @@ class ProjectMetrics:
 # ── Module role classification ────────────────────────────────────
 
 
-def _classify_module_role(module_name: str) -> str:
+def _classify_module_role(module_name: str, *, is_package: bool = False) -> str:
     """Classify a module's structural role for threshold scaling.
 
     Returns: 'test', 'init', 'config', 'source'.
@@ -126,13 +126,16 @@ def _classify_module_role(module_name: str) -> str:
     Test files get relaxed CC thresholds because each test method adds +1
     to CC — a file with 75 test methods has CC=75 which is normal coverage,
     not architectural risk.
+
+    ``is_package`` is True for ``__init__.py`` files — their module name
+    uses the package name (e.g. 'core'), not '__init__'.
     """
     basename = module_name.rsplit(".", 1)[-1]
 
     if basename.startswith("test_") or basename == "conftest":
         return "test"
 
-    if basename == "__init__":
+    if basename == "__init__" or is_package:
         return "init"
 
     if basename in ("config", "settings", "constants", "defaults"):
@@ -248,6 +251,8 @@ def _assess_health(
     thresholds: "ThresholdConfig | None" = None,
     parse_error: bool = False,
     adaptive: "dict[str, float] | None" = None,
+    module_role: str = "source",
+    arch_role: str = "",
 ) -> str:
     """Determine module health on a 5-level monotonic severity scale.
 
@@ -261,7 +266,11 @@ def _assess_health(
 
     When ``adaptive`` thresholds are provided (from percentile computation),
     they override the static thresholds for CC/Cog classification.
-    All other thresholds (coupling, instability) still come from ThresholdConfig.
+
+    ``module_role`` ('init', 'test', 'config', 'source') and ``arch_role``
+    ('hub-by-design', 'core', 'orchestrator', '') control whether coupling-
+    based escalation applies.  Hub-by-design init modules have high Ce by
+    design (re-exports), so coupling rules are skipped for them.
     """
     if parse_error:
         return "unknown"
@@ -292,22 +301,26 @@ def _assess_health(
         cog_elevated = t.cog_elevated
         cog_moderate = t.cog_moderate
 
+    # Hub-by-design init modules: skip coupling-based escalation.
+    # High Ce in __init__.py is intentional re-exporting, not a problem.
+    skip_coupling = (arch_role == "hub-by-design" or module_role == "init")
+
     # Critical: extreme complexity or severe coupling
     if cc >= cc_critical or cog >= cog_critical:
         return "critical"
-    if instability > t.instability_high and ce > t.ce_high:
+    if not skip_coupling and instability > t.instability_high and ce > t.ce_high:
         return "critical"
 
     # High: significant structural problems
     if cc >= cc_high or cog >= cog_high:
         return "high"
-    if ca == 0 and ce > t.ce_high:
+    if not skip_coupling and ca == 0 and ce > t.ce_high:
         return "high"
 
     # Elevated: noticeable risk
     if cc >= cc_elevated or cog >= cog_elevated:
         return "elevated"
-    if instability > t.instability_high * 0.875 and ce > t.ce_high * 0.625:
+    if not skip_coupling and instability > t.instability_high * 0.875 and ce > t.ce_high * 0.625:
         return "elevated"
 
     # Moderate: mild concerns
@@ -333,12 +346,12 @@ def compute_edit_cost(
       - files: number of direct dependents (files at risk of breaking)
       - cascade: transitive dependents (full blast radius)
       - tokens: rough token estimate for this file + its direct dependents
-      - risk: 'low', 'medium', 'high', or 'unknown'
+      - risk: 'low', 'medium', or 'high' (never 'unknown')
     """
     ratios = token_ratios or _DEFAULT_TOKEN_RATIOS
     node = graph.nodes.get(module)
     if not node:
-        return {"files": 0, "cascade": 0, "tokens": 0, "risk": "unknown"}
+        return {"files": 0, "cascade": 0, "tokens": 0, "risk": "low"}
 
     dependents = graph.get_dependents(module)
     transitive = graph.get_transitive_dependents(module)
@@ -352,9 +365,10 @@ def compute_edit_cost(
         for d in dependents if d in graph.nodes
     )
 
-    # Risk from git history + dependency count
+    # Risk: combine git churn (if available) with structural signals.
+    # Structural risk is always computable — never emit "unknown".
     files_at_risk = len(dependents)
-    change_risk = "unknown"
+
     if git_history and git_history.available:
         rel = node.rel_path.replace("\\", "/")
         churn = git_history.files.get(rel)
@@ -367,6 +381,15 @@ def compute_edit_cost(
                 change_risk = "low"
         else:
             change_risk = "low"  # No churn data = probably stable
+    else:
+        # Structural fallback: aligned with dependents_critical (10)
+        # and dependents_high (5) from ThresholdConfig defaults.
+        if files_at_risk >= 10:
+            change_risk = "high"
+        elif files_at_risk >= 5:
+            change_risk = "medium"
+        else:
+            change_risk = "low"
 
     return {
         "files": files_at_risk,
@@ -422,7 +445,7 @@ def calculate_module_metrics(
         abstractness = abstract_count / class_count if class_count > 0 else 0.0
         distance = abs(abstractness + instability - 1.0)
 
-        role = _classify_module_role(module_name)
+        role = _classify_module_role(module_name, is_package=node.is_package)
 
         raw_data.append({
             "module_name": module_name,
@@ -489,15 +512,7 @@ def calculate_module_metrics(
         module_name = d["module_name"]
         node = d["node"]
 
-        # Pick adaptive thresholds for this module's role
-        role_adaptive = _role_adaptive.get(d["role"], adaptive_source)
-
-        health = _assess_health(
-            d["ca"], d["ce"], d["instability"], d["cc"], d["cog"],
-            thresholds=thresholds, parse_error=d["pe"],
-            adaptive=role_adaptive,
-        )
-
+        # Compute arch_role FIRST — health scoring needs it
         cent = centrality.get(module_name, 0.0)
         cent_pct = _percentile_rank(cent, sorted_centrality)
         ca_pct = _percentile_rank(float(d["ca"]), sorted_ca)
@@ -505,6 +520,16 @@ def calculate_module_metrics(
         arch_role = _classify_arch_role(
             module_name, d["ca"], d["ce"], cent_pct,
             ca_percentile=ca_pct,
+        )
+
+        # Pick adaptive thresholds for this module's role
+        role_adaptive = _role_adaptive.get(d["role"], adaptive_source)
+
+        health = _assess_health(
+            d["ca"], d["ce"], d["instability"], d["cc"], d["cog"],
+            thresholds=thresholds, parse_error=d["pe"],
+            adaptive=role_adaptive,
+            module_role=d["role"], arch_role=arch_role,
         )
 
         results[module_name] = ModuleMetrics(

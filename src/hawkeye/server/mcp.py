@@ -51,6 +51,13 @@ def _resolve_engine(project_path: str = ""):
     return engine
 
 
+
+def _to_path(engine: "HawkeyeEngine", module: str) -> str:
+    """Convert FQDN module name to file path for consistent MCP output."""
+    node = engine.graph.nodes.get(module)
+    return node.rel_path if node else module
+
+
 # ── MCP Server ──────────────────────────────────────────────────
 
 def create_mcp_server():
@@ -83,7 +90,8 @@ def create_mcp_server():
             "Before renaming symbols: hawkeye_impact(file, symbol) shows what breaks.\n"
             "After adding imports: hawkeye_cycles() verifies no circular deps introduced.\n"
             "hawkeye_hotspots ranks files by complexity x git churn (real risk).\n"
-            "All tools default to compact=True for token efficiency."
+            "All tools default to compact=True for token efficiency.\n"
+            "Compact schema: v0.6 (flat file paths, top-level metrics, edit_cost)."
         ),
     )
 
@@ -245,7 +253,7 @@ def create_mcp_server():
             "pattern": pattern,
             "count": len(matches),
             "modules": [
-                {"module": m, "file": engine.graph.nodes[m].rel_path,
+                {"file": engine.graph.nodes[m].rel_path,
                  "loc": engine.graph.nodes[m].loc,
                  "language": engine.graph.nodes[m].language}
                 for m in matches[:50]  # Cap for token efficiency
@@ -271,12 +279,16 @@ def create_mcp_server():
             "runtime_count": len(runtime_cycles),
             "safe_count": len(safe_cycles),
             "cycles": [
-                {"path": c.path, "length": c.length,
+                {"path": [_to_path(engine, m) for m in c.path],
+                 "length": c.length,
                  "severity": c.severity, "kind": c.kind,
-                 "break_at": c.break_suggestion}
+                 "break_at": _to_path(engine, c.break_suggestion) if c.break_suggestion else None}
                 for c in cr.cycles
             ],
-            "participation": cr.participation,
+            "participation": {
+                _to_path(engine, m): count
+                for m, count in cr.participation.items()
+            },
         }
 
     # ── 6. Metrics ─────────────────────────────────────────────
@@ -310,7 +322,8 @@ def create_mcp_server():
             "sort_by": sort_by,
             "count": len(items),
             "modules": [
-                {"module": m.module_name, "language": m.language, "ca": m.ca, "ce": m.ce,
+                {"file": _to_path(engine, m.module_name),
+                 "language": m.language, "ca": m.ca, "ce": m.ce,
                  "instability": m.instability, "loc": m.loc, "health": m.health,
                  "cc": m.cyclomatic_complexity, "cog": m.cognitive_complexity,
                  "classes": m.class_count, "functions": m.function_count}
@@ -339,7 +352,8 @@ def create_mcp_server():
         if path is None:
             return {"source": source, "target": target, "path": None,
                     "message": f"No dependency path from '{source}' to '{target}'."}
-        return {"source": source, "target": target, "path": path,
+        return {"source": source, "target": target,
+                "path": [_to_path(engine, m) for m in path],
                 "hops": len(path) - 1}
 
     # ── 8. Graph ───────────────────────────────────────────────
@@ -361,27 +375,43 @@ def create_mcp_server():
         engine = _resolve_engine(project_path)
         graph = engine.graph
 
-        # Auto-cap large projects to prevent context window blowout
         node_count = len(graph.nodes)
-        auto_capped = False
-        if max_depth == 0 and node_count > 80:
-            max_depth = 2
-            auto_capped = True
+        edge_count = sum(len(deps) for deps in graph.adjacency.values())
 
-        if max_depth > 0:
-            graph = graph.filtered(max_depth=max_depth)
+        # Summary mode for MCP: always return a bounded overview.
+        # Full graph is only useful for CLI/HTML visualization.
+        # Top hubs by afferent coupling = most depended-on modules.
+        metrics_list = sorted(
+            engine.module_metrics.values(),
+            key=lambda m: m.ca,
+            reverse=True,
+        )
+        top_hubs = [
+            {"file": _to_path(engine, m.module_name),
+             "ca": m.ca, "ce": m.ce, "health": m.health}
+            for m in metrics_list[:15]
+            if m.ca > 0
+        ]
 
-        from ..visualizer.json_renderer import render_json
-        result = json.loads(render_json(
-            graph, engine.module_metrics,
-            engine.project_metrics, engine.cycle_report,
-        ))
+        # Package-level edge summary
+        pkg_edges: dict[str, set[str]] = {}
+        for src, deps in graph.adjacency.items():
+            src_pkg = src.rsplit(".", 1)[0] if "." in src else src
+            for dst in deps:
+                dst_pkg = dst.rsplit(".", 1)[0] if "." in dst else dst
+                if src_pkg != dst_pkg:
+                    pkg_edges.setdefault(src_pkg, set()).add(dst_pkg)
 
-        if auto_capped:
-            result["_warning"] = (
-                f"Output auto-capped to max_depth=2 ({node_count} modules). "
-                f"Use hawkeye_file_context for targeted queries."
-            )
+        result: dict[str, object] = {
+            "modules": node_count,
+            "edges": edge_count,
+            "density": round(edge_count / (node_count * (node_count - 1))
+                             if node_count > 1 else 0.0, 4),
+            "packages": len(pkg_edges),
+            "top_hubs": top_hubs,
+            "hint": "Use hawkeye_file_context(file) for targeted queries. "
+                    "Use hawkeye_metrics(sort_by, limit) for rankings.",
+        }
 
         return result
 
@@ -392,6 +422,7 @@ def create_mcp_server():
         file: str,
         symbol: str = "",
         mode: str = "impact",
+        limit: int = 15,
         project_path: str = "",
     ) -> dict[str, object]:
         """Analyze symbol-level impact of changing a file or specific symbol.
@@ -401,43 +432,50 @@ def create_mcp_server():
         - 'hotspots': Show the most-imported symbols (coupling risk).
         - 'unused': Show symbols that are defined but never imported.
 
-        This is critical context BEFORE refactoring — it tells you the blast
-        radius at the symbol level, not just the module level.
+        Results are capped at ``limit`` entries (default 15) for token
+        efficiency.  The response includes ``total`` so you know if data
+        was truncated.
 
         Args:
             file: File path or module name to analyze.
             symbol: Specific symbol name (e.g., 'Engine'). If empty, all symbols.
             mode: 'impact', 'hotspots', or 'unused'.
+            limit: Max entries to return (default: 15).
             project_path: Optional project path.
         """
         engine = _resolve_engine(project_path)
         sg = engine.symbol_graph
         registry = engine.symbol_registry
+        cap = max(limit, 1)
 
         if mode == "hotspots":
             hotspots = sg.hotspots(min_usage=2)
+            total = len(hotspots)
             return {
                 "mode": "hotspots",
-                "count": len(hotspots),
+                "total": total,
+                "showing": min(cap, total),
                 "hotspots": [
-                    {"symbol": str(sid), "module": sid.module,
+                    {"file": _to_path(engine, sid.module),
                      "name": sid.name, "kind": sid.kind,
                      "usage_count": count}
-                    for sid, count in hotspots
+                    for sid, count in hotspots[:cap]
                 ],
             }
 
         if mode == "unused":
             fw_decorators = engine.config.framework_entry_decorators
             unused = sg.unused_symbols(registry, framework_decorators=fw_decorators)
+            total = len(unused)
             return {
                 "mode": "unused",
-                "count": len(unused),
+                "total": total,
+                "showing": min(cap, total),
                 "framework_filtered": bool(fw_decorators),
                 "symbols": [
-                    {"symbol": str(sid), "module": sid.module,
+                    {"file": _to_path(engine, sid.module),
                      "name": sid.name, "kind": sid.kind}
-                    for sid in unused
+                    for sid in unused[:cap]
                 ],
             }
 
@@ -450,7 +488,7 @@ def create_mcp_server():
         symbols = registry.get_module_symbols(module)
         if not symbols:
             return {
-                "module": module,
+                "file": _to_path(engine, module),
                 "language": engine.graph.nodes[module].language,
                 "symbols": [],
                 "message": "No symbols defined in this module.",
@@ -463,17 +501,25 @@ def create_mcp_server():
                 return {"error": f"Symbol '{symbol}' not found in {module}",
                         "available": [s.id.name for s in available]}
 
+        # Sort by usage count descending — most-imported symbols first
+        symbols_with_usage = [
+            (s, sg.usage_count(s.id)) for s in symbols
+        ]
+        symbols_with_usage.sort(key=lambda x: x[1], reverse=True)
+
+        total = len(symbols_with_usage)
         results = []
-        for defn in symbols:
+        for defn, _ in symbols_with_usage[:cap]:
             impact = sg.impact_of(defn.id)
             impact["kind"] = defn.id.kind
             results.append(impact)
 
         return {
             "mode": "impact",
-            "module": module,
+            "file": _to_path(engine, module),
             "language": engine.graph.nodes[module].language,
-            "symbol_count": len(results),
+            "total": total,
+            "showing": min(cap, total),
             "impacts": results,
         }
 
@@ -503,7 +549,7 @@ def create_mcp_server():
 
         symbols = registry.get_module_symbols(module)
         return {
-            "module": module,
+            "file": _to_path(engine, module),
             "language": engine.graph.nodes[module].language,
             "total_symbols": len(symbols),
             "symbols": [
@@ -565,7 +611,6 @@ def create_mcp_server():
             "count": len(hotspots),
             "hotspots": [
                 {
-                    "module": h.module,
                     "file": h.rel_path,
                     "hotspot_score": h.hotspot_score,
                     "cc": h.cyclomatic_complexity,

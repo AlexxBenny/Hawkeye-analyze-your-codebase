@@ -5,6 +5,26 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-05-02
+
+### Fixed
+- **False critical on `__init__.py` modules**: `core/__init__.py` (CC=1, LOC=30) was classified `critical` because coupling-based rules triggered on high Ce. Hub-by-design init modules now skip coupling-based severity escalation. Fixed `_classify_module_role` to use `is_package` flag — `__init__.py` files whose module names use the package name (e.g. `core`) are now correctly detected as `init` role.
+- **`edit_cost.risk = "unknown"`**: When git history was unavailable, risk was emitted as `"unknown"` which agents either ignore or misinterpret. Now uses structural fallback: `high` (≥10 dependents), `medium` (≥5), `low` (<5) — aligned with `dependents_critical`/`dependents_high` thresholds.
+- **FQDN module names in MCP output**: All 12 tools now use file paths (`src/hawkeye/core/metrics.py`) instead of FQDN module names (`Hawkeye.src.hawkeye.core.metrics`). Added `_to_path()` helper. Applies to: `metrics`, `find`, `path`, `hotspots`, `symbols`, `impact`, `cycles` (`participation`, `path`), `context` (`shared_dependencies`).
+- **`hawkeye_graph` context overflow**: Full graph dump (74,951 chars / ~18,700 tokens on 62 modules) replaced with bounded summary mode: top 15 hubs by Ca, edge count, density, package count. Output: ~450 tokens.
+- **`hawkeye_impact` context overflow**: All 3 modes (`impact`, `hotspots`, `unused`) now default to `limit=15` entries with `total`/`showing` counts for truncation awareness. Impact mode sorts symbols by usage count descending.
+- **`v` key removed from compact payload**: Schema version moved to MCP server instructions (out-of-band). Saves 1 token per `hawkeye_file_context` call.
+
+### Changed
+- **Critical modules: 5 → 3** on Hawkeye's own codebase. The 2 that dropped were init modules with coupling-triggered false criticals.
+- **`_assess_health`** now accepts `module_role` and `arch_role` parameters. Coupling-based escalation (instability + Ce rules) skipped for `init` and `hub-by-design` modules.
+- **`hawkeye_graph` docstring** updated — no longer warns about large output.
+- **`hawkeye_impact` docstring** updated — documents `limit` parameter and `total`/`showing` response keys.
+
+### Performance
+- **350 tests** passing. **0 import cycles.**
+- **62 modules**, 10,174 LOC.
+
 ## [0.6.0] - 2026-05-01
 
 ### ⚠️ Breaking Changes

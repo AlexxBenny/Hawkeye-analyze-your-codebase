@@ -100,7 +100,6 @@ Returns everything the agent needs in **one call** (v0.6 compact format):
 
 ```json
 {
-  "v": "0.6",
   "file": "core/engine.py",
   "loc": 340,
   "arch_role": "orchestrator",
@@ -156,6 +155,8 @@ Hawkeye is built specifically for AI agent consumption:
 | Module with warnings | ~180 tokens |
 | Critical module with cycles | ~250 tokens |
 | Batch context (3 files) | ~350 tokens |
+| Graph summary (62 modules) | ~450 tokens |
+| Impact hotspots (15 entries) | ~400 tokens |
 | Git churn in compact mode | ~3 tokens |
 | Hotspot ranking (5 files) | ~262 tokens |
 
@@ -178,7 +179,7 @@ After calling `hawkeye_analyze(project_path)` once, all other tools are availabl
 | `hawkeye_metrics(sort_by, limit)` | Coupling + complexity table for all modules | Finding the riskiest modules |
 | `hawkeye_path(source, target)` | Shortest dependency path between two modules | Understanding how modules are connected |
 | `hawkeye_hotspots(limit, days)` | Rank files by complexity × git churn — the real risk | Finding files that are both complex AND actively changing |
-| `hawkeye_graph(max_depth)` | Full dependency graph as JSON (auto-caps at 80+ modules) | Structural overview |
+| `hawkeye_graph()` | Structural overview — top hubs, edge count, density (~450 tokens) | Understanding project architecture at a glance |
 
 ### Recommended Agent Workflow
 
@@ -507,7 +508,7 @@ src/hawkeye/
     └── json_renderer.py    # Structured JSON
 ```
 
-62 modules, 10,112 LOC, 0 import cycles. 350 tests across 12 test files. Python 3.10+.
+62 modules, 10,174 LOC, 0 import cycles. 350 tests across 12 test files. Python 3.10+.
 
 ## License
 

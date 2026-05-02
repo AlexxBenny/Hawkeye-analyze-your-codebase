@@ -125,7 +125,6 @@ def _build_compact_context(
     )
 
     result: dict = {
-        "v": "0.6",
         "file": node.rel_path,
         "loc": node.loc,
     }
@@ -432,7 +431,11 @@ def build_batch_context(
         for module in modules:
             for dep in graph.get_dependencies(module):
                 dep_counts[dep] = dep_counts.get(dep, 0) + 1
-        shared = sorted(d for d, c in dep_counts.items() if c > 1)
+        shared = sorted(
+            graph.nodes[d].rel_path
+            for d, c in dep_counts.items()
+            if c > 1 and d in graph.nodes
+        )
     else:
         shared = []
 

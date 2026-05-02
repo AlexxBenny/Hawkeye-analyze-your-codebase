@@ -159,8 +159,7 @@ class TestEngineFileContext:
         assert "dependents" in ctx
         assert "transitive_impact" in ctx
         assert "edit_cost" in ctx
-        assert "v" in ctx
-        assert ctx["v"] == "0.6"
+        assert "v" not in ctx  # version is out-of-band (MCP instructions)
 
     def test_returns_none_for_unknown(self, tmp_project: Path):
         engine = HawkeyeEngine()
