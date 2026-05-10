@@ -86,6 +86,17 @@ class Insight:
         }
 
 
+# ── Severity ordering (canonical, project-wide) ─────────────
+# Single source of truth: info=0, warning=1, critical=2.
+# Always use reverse=True for descending (critical-first) sorts.
+
+SEVERITY_ORDER: dict[str, int] = {
+    "info": 0,
+    "warning": 1,
+    "critical": 2,
+}
+
+
 # ── Insight code → severity mapping ──────────────────────────
 # Used by MCP tools for severity filtering. Maps each insight code
 # to its typical/maximum severity level.
@@ -115,6 +126,10 @@ INSIGHT_SEVERITY: dict[str, str] = {
     "high_fan_out": "info",
     "wide_transitive_reach": "info",
     "core_module": "info",
+    # Core rewrites (info — structural, not pathological)
+    "core_high_cc": "info",
+    "core_high_cog": "info",
+    "core_wide_reach": "info",
 }
 
 
@@ -471,8 +486,7 @@ def derive_module_insights(
     ))
 
     # Sort: critical first, then warning, then info
-    severity_order = {"critical": 0, "warning": 1, "info": 2}
-    insights.sort(key=lambda i: severity_order.get(i.severity, 3))
+    insights.sort(key=lambda i: SEVERITY_ORDER.get(i.severity, -1), reverse=True)
 
     return insights
 
@@ -493,6 +507,64 @@ def insights_full(insights: list[Insight]) -> list[dict]:
                "detail": "I=0.92: high outgoing vs incoming dependencies"}]
     """
     return [i.to_dict() for i in insights]
+
+
+# ── Core insight rewriting ────────────────────────────────────
+# Transforms pathological insight codes into neutral structural
+# observations for arch_role=core modules.  "extreme_cyclomatic"
+# implies a defect; "core_high_cc" communicates the same metric
+# without the alarm.
+
+_CORE_REWRITE: dict[str, tuple[str, str]] = {
+    # raw_code → (new_code, new_severity)
+    "extreme_cyclomatic": ("core_high_cc", "info"),
+    "extreme_cognitive": ("core_high_cog", "info"),
+    "critical_blast_radius": ("core_wide_reach", "info"),
+    "high_blast_radius": ("core_wide_reach", "info"),
+    "high_afferent": ("", ""),  # suppress — redundant with core_wide_reach
+    "high_cyclomatic": ("core_high_cc", "info"),
+    "high_cognitive": ("core_high_cog", "info"),
+}
+
+
+def rewrite_insights_for_core(insights: list[Insight]) -> list[Insight]:
+    """Rewrite pathological insight codes for arch_role=core modules.
+
+    Core modules are expected to have high complexity and wide reach.
+    Codes like 'extreme_cyclomatic' imply pathology; 'core_high_cc'
+    communicates the same fact without the alarm.
+
+    Must be called AFTER derive_module_insights() and BEFORE the
+    severity cap ([:3]).  Re-sorts by severity after rewriting.
+    """
+    rewritten: list[Insight] = []
+    seen_codes: set[str] = set()
+    for insight in insights:
+        entry = _CORE_REWRITE.get(insight.code)
+        if entry is None:
+            # Not in rewrite map — keep as-is
+            rewritten.append(insight)
+            continue
+        new_code, new_severity = entry
+        if not new_code:
+            # Suppressed (e.g., high_afferent)
+            continue
+        if new_code in seen_codes:
+            # Deduplicate (high_cyclomatic + extreme_cyclomatic → one core_high_cc)
+            continue
+        seen_codes.add(new_code)
+        rewritten.append(Insight(
+            code=new_code,
+            severity=new_severity,
+            metric=insight.metric,
+            value=insight.value,
+            threshold=insight.threshold,
+            detail=insight.detail,
+        ))
+
+    # Re-sort: critical first
+    rewritten.sort(key=lambda i: SEVERITY_ORDER.get(i.severity, -1), reverse=True)
+    return rewritten
 
 
 # ── Risk profiles ─────────────────────────────────────────────

@@ -131,7 +131,7 @@ def create_mcp_server():
         _engine = engine
 
         pm = engine.project_metrics
-        return {
+        result = {
             "project_name": engine.project_name,
             "modules": pm.total_modules,
             "dependencies": pm.total_edges,
@@ -148,13 +148,16 @@ def create_mcp_server():
                 "critical": pm.modules_critical,
                 "unknown": pm.modules_unknown,
             },
-            "runtime_cycles": len([
-                c for c in engine.cycle_report.cycles if c.kind == "runtime"
-            ]),
-            "safe_cycles": len([
-                c for c in engine.cycle_report.cycles if c.kind != "runtime"
-            ]),
         }
+        # Only include cycle breakdown when cycles exist
+        if engine.cycle_report.cycle_count > 0:
+            result["runtime_cycles"] = len([
+                c for c in engine.cycle_report.cycles if c.kind == "runtime"
+            ])
+            result["safe_cycles"] = len([
+                c for c in engine.cycle_report.cycles if c.kind != "runtime"
+            ])
+        return result
 
     # ── 2. File Context (THE key tool) ─────────────────────────
 
@@ -181,6 +184,8 @@ def create_mcp_server():
 
         If risk='hub' and arch_role is absent: make minimal, surgical changes.
         If risk='hub' and arch_role='core': changes expected, verify interfaces.
+        If health='elevated' and arch_role='core': complexity is structural —
+          normal edits are safe, no need for extra caution.
         If health='critical' and role='test': normal (test CC is not risk).
 
         Args:
@@ -203,12 +208,11 @@ def create_mcp_server():
 
         # Filter insights by severity if requested
         if min_severity and "insights" in result:
-            severity_order = {"info": 0, "warning": 1, "critical": 2}
-            min_level = severity_order.get(min_severity, 0)
-            from ..core.insights import INSIGHT_SEVERITY
+            from ..core.insights import INSIGHT_SEVERITY, SEVERITY_ORDER
+            min_level = SEVERITY_ORDER.get(min_severity, 0)
             result["insights"] = [
                 i for i in result["insights"]
-                if severity_order.get(INSIGHT_SEVERITY.get(i, "info"), 0) >= min_level
+                if SEVERITY_ORDER.get(INSIGHT_SEVERITY.get(i, "info"), 0) >= min_level
             ]
 
         return result
@@ -254,9 +258,8 @@ def create_mcp_server():
             "count": len(matches),
             "modules": [
                 {"file": engine.graph.nodes[m].rel_path,
-                 "loc": engine.graph.nodes[m].loc,
-                 "language": engine.graph.nodes[m].language}
-                for m in matches[:50]  # Cap for token efficiency
+                 "loc": engine.graph.nodes[m].loc}
+                for m in matches[:15]  # Cap for token efficiency
             ],
         }
 
@@ -271,10 +274,12 @@ def create_mcp_server():
         """
         engine = _resolve_engine(project_path)
         cr = engine.cycle_report
+        if not cr.has_cycles:
+            return {"has_cycles": False}
         runtime_cycles = [c for c in cr.cycles if c.kind == "runtime"]
         safe_cycles = [c for c in cr.cycles if c.kind != "runtime"]
         return {
-            "has_cycles": cr.has_cycles,
+            "has_cycles": True,
             "count": cr.cycle_count,
             "runtime_count": len(runtime_cycles),
             "safe_count": len(safe_cycles),
@@ -295,8 +300,9 @@ def create_mcp_server():
 
     @mcp.tool(annotations=_TOOL_ANNOTATIONS_READONLY)
     def hawkeye_metrics(
-        sort_by: str = "instability",
+        sort_by: str = "ca",
         limit: int = 20,
+        compact: bool = True,
         project_path: str = "",
     ) -> dict[str, object]:
         """Get coupling metrics for all modules.
@@ -308,6 +314,7 @@ def create_mcp_server():
         Args:
             sort_by: 'instability', 'ca', 'ce', or 'loc'.
             limit: Max modules to return (0 = all).
+            compact: If True (default), return only file, health, cc, ca, ce.
             project_path: Optional project path.
         """
         engine = _resolve_engine(project_path)
@@ -318,12 +325,23 @@ def create_mcp_server():
         )
         if limit > 0:
             items = items[:limit]
+        if compact:
+            return {
+                "sort_by": sort_by,
+                "count": len(items),
+                "modules": [
+                    {"file": _to_path(engine, m.module_name),
+                     "health": m.health, "cc": m.cyclomatic_complexity,
+                     "ca": m.ca, "ce": m.ce}
+                    for m in items
+                ],
+            }
         return {
             "sort_by": sort_by,
             "count": len(items),
             "modules": [
                 {"file": _to_path(engine, m.module_name),
-                 "language": m.language, "ca": m.ca, "ce": m.ce,
+                 "ca": m.ca, "ce": m.ce,
                  "instability": m.instability, "loc": m.loc, "health": m.health,
                  "cc": m.cyclomatic_complexity, "cog": m.cognitive_complexity,
                  "classes": m.class_count, "functions": m.function_count}
@@ -489,7 +507,6 @@ def create_mcp_server():
         if not symbols:
             return {
                 "file": _to_path(engine, module),
-                "language": engine.graph.nodes[module].language,
                 "symbols": [],
                 "message": "No symbols defined in this module.",
             }
@@ -510,14 +527,26 @@ def create_mcp_server():
         total = len(symbols_with_usage)
         results = []
         for defn, _ in symbols_with_usage[:cap]:
-            impact = sg.impact_of(defn.id)
-            impact["kind"] = defn.id.kind
-            results.append(impact)
+            raw = sg.impact_of(defn.id)
+            # Clean schema: deduplicate, use file paths.
+            # Filter to graph.nodes to exclude any external/pseudo modules
+            # that leak from the symbol graph BFS — in practice all modules
+            # are internal, but this guard prevents mixed FQDN/path output.
+            affected = sorted(
+                _to_path(engine, m)
+                for m in raw.get("transitive_modules", [])
+                if m in engine.graph.nodes
+            )
+            results.append({
+                "symbol": f"{_to_path(engine, defn.id.module)}::{defn.id.name}",
+                "kind": defn.id.kind,
+                "affected_modules": affected,
+                "affected_count": len(affected),
+            })
 
         return {
             "mode": "impact",
             "file": _to_path(engine, module),
-            "language": engine.graph.nodes[module].language,
             "total": total,
             "showing": min(cap, total),
             "impacts": results,
@@ -528,6 +557,7 @@ def create_mcp_server():
     @mcp.tool(annotations=_TOOL_ANNOTATIONS_READONLY)
     def hawkeye_symbols(
         file: str,
+        compact: bool = True,
         project_path: str = "",
     ) -> dict[str, object]:
         """List all symbols (classes, functions) defined in a module.
@@ -536,6 +566,7 @@ def create_mcp_server():
 
         Args:
             file: File path or module name.
+            compact: If True (default), return only name and kind per symbol.
             project_path: Optional project path.
         """
         engine = _resolve_engine(project_path)
@@ -548,9 +579,17 @@ def create_mcp_server():
                     "suggestions": engine.find_modules(file)[:10]}
 
         symbols = registry.get_module_symbols(module)
+        if compact:
+            return {
+                "file": _to_path(engine, module),
+                "total": len(symbols),
+                "symbols": [
+                    {"n": s.id.name, "k": s.id.kind, "l": s.line}
+                    for s in symbols
+                ],
+            }
         return {
             "file": _to_path(engine, module),
-            "language": engine.graph.nodes[module].language,
             "total_symbols": len(symbols),
             "symbols": [
                 {
@@ -572,6 +611,7 @@ def create_mcp_server():
     async def hawkeye_hotspots(
         limit: int = 20,
         days: int = 90,
+        compact: bool = True,
         project_path: str = "",
     ) -> dict[str, object]:
         """Rank files by hotspot score = complexity × git churn.
@@ -586,6 +626,7 @@ def create_mcp_server():
             limit: Max entries to return (default: 20).
             days: Git history window in days (default: 90). Use 30 for
                 recent activity or 180 for long-term trends.
+            compact: If True (default), return only file, hotspot_score, health, churn.
             project_path: Optional project path.
         """
         import anyio
@@ -604,6 +645,22 @@ def create_mcp_server():
                 "available": False,
                 "message": "Git history not available (not a git repo or git not installed).",
             }
+        if compact:
+            return {
+                "available": True,
+                "analysis_days": gh.analysis_days,
+                "total_commits": gh.total_commits,
+                "count": len(hotspots),
+                "hotspots": [
+                    {
+                        "file": h.rel_path,
+                        "hotspot_score": h.hotspot_score,
+                        "health": h.health,
+                        "churn": h.churn_category,
+                    }
+                    for h in hotspots
+                ],
+            }
         return {
             "available": True,
             "analysis_days": gh.analysis_days,
@@ -615,9 +672,7 @@ def create_mcp_server():
                     "hotspot_score": h.hotspot_score,
                     "cc": h.cyclomatic_complexity,
                     "commits": h.commit_count,
-                    "lines_changed": h.lines_changed,
                     "days_since_change": h.days_since_last_change,
-                    "contributors": h.contributor_count,
                     "churn": h.churn_category,
                     "health": h.health,
                 }

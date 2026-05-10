@@ -1,6 +1,6 @@
 # 🦅 Using Hawkeye with Antigravity — Integration Guide
 
-Antigravity is a Gemini-based AI coding agent that runs as a VS Code extension. Hawkeye exposes 10 architectural intelligence tools via MCP (Model Context Protocol). Once connected, Antigravity queries Hawkeye **before editing any Python file** to understand dependencies, blast radius, complexity, and cycle risks.
+Antigravity is a Gemini-based AI coding agent that runs as a VS Code extension. Hawkeye exposes 12 architectural intelligence tools via MCP (Model Context Protocol). Once connected, Antigravity queries Hawkeye **before editing any Python file** to understand dependencies, blast radius, complexity, and cycle risks.
 
 ---
 
@@ -12,7 +12,7 @@ pip install "hawkeye-analyzer[mcp]"
 
 Verify:
 ```bash
-hawkeye --version         # Should show 0.1.4+
+hawkeye --version         # Should show 0.6.2+
 hawkeye-mcp --help        # Should show MCP server options
 where.exe hawkeye-mcp     # Windows: should show path to .exe
 ```
@@ -57,7 +57,7 @@ C:\Users\<username>\.gemini\antigravity\mcp_config.json
 
 After editing the config, click **"Refresh"** in the MCP servers panel (next to "INSTALLED MCP SERVERS"). If Hawkeye doesn't appear, restart Antigravity.
 
-Hawkeye will appear in the "INSTALLED MCP SERVERS" list with 10 tools available.
+Hawkeye will appear in the "INSTALLED MCP SERVERS" list with 12 tools available.
 
 ---
 
@@ -69,7 +69,7 @@ Ask Antigravity:
 "What Hawkeye tools do you have?"
 ```
 
-You should see all 10 `hawkeye_*` tools listed. You can also test with:
+You should see all 12 `hawkeye_*` tools listed. You can also test with:
 
 ```
 "Analyze this project with Hawkeye"
@@ -97,6 +97,7 @@ When working on a Python project, use the Hawkeye MCP tools for architectural in
 ### Editing Rules Based on Context
 - If risk is "hub" or "fragile": make minimal, surgical changes only
 - If health is "critical": do NOT add complexity — suggest refactoring instead
+- If health is "elevated" and arch_role is "core": complexity is structural — normal edits are safe
 - If insights include "extreme_cyclomatic": suggest decomposition before adding more logic
 - If dependent_count is high (≥5): be extra careful with interface changes
 
@@ -214,7 +215,7 @@ those are the fragile points I must not break."
 
 ---
 
-## The 10 Available Tools
+## The 12 Available Tools
 
 | Tool | What Antigravity Uses It For |
 |------|------------------------------|
@@ -227,7 +228,8 @@ those are the fragile points I must not break."
 | `hawkeye_cycles()` | After creating new imports — verify no cycles |
 | `hawkeye_metrics(sort_by)` | Finding the riskiest modules in the project |
 | `hawkeye_path(source, target)` | Understanding how two modules are connected |
-| `hawkeye_graph(max_depth)` | Full structural overview (large output) |
+| `hawkeye_hotspots(limit, days)` | Rank files by complexity × git churn — the real risk |
+| `hawkeye_graph(max_depth)` | Structural overview — top hubs, edge count, density |
 
 ---
 

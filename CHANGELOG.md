@@ -5,6 +5,32 @@ All notable changes to Hawkeye will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-05-10
+
+### Added
+- **`effective_health`**: Core modules (`arch_role=core`) cap health at `elevated` instead of `critical`/`high`. Test modules cap at `moderate`. `health` field now reflects effective health; `raw_health` preserves the original metric-based assessment. Agents see `health=elevated` on `analyzer.py` instead of `critical` — complexity is structural, not pathological.
+- **Insight rewriting for core modules**: `extreme_cyclomatic` → `core_high_cc` (info), `extreme_cognitive` → `core_high_cog` (info), `critical_blast_radius` → `core_wide_reach` (info). `high_afferent` suppressed (redundant with `core_wide_reach`). Rewrites happen after `derive_module_insights()` and before the `[:3]` severity cap — core modules now surface meaningful structural info instead of false alarms.
+- **`SEVERITY_ORDER` constant** in `insights.py`: Single source of truth for severity ordering (`info=0, warning=1, critical=2`). All sort/filter operations use this constant with `reverse=True` for descending. Eliminates inconsistent inline dicts.
+- **`raw_health` field on `ModuleMetrics`**: Default `"unknown"`, exposed in full mode via `to_dict()` and `_build_full_context()`. Agents can compare `raw_health` vs `health` to understand when effective_health adjusted the signal.
+- **MCP docstring guidance for `elevated + core`**: `hawkeye_file_context` docstring now includes: "If health='elevated' and arch_role='core': complexity is structural — normal edits are safe."
+
+### Fixed
+- **`hawkeye_find` noise**: Removed `language` field from results (always inferrable from path), reduced limit from 50 → 15 for token efficiency.
+- **`hawkeye_symbols` compact mode**: Added line number (`"l"` key) — was missing in compact output while present in full mode.
+- **`hawkeye_metrics` default sort**: Changed from `instability` to `ca` — instability isn't in compact output, sorting by it was misleading.
+- **Severity sort inconsistency**: Three separate inline `severity_order` dicts (with reversed numbering conventions) replaced by canonical `SEVERITY_ORDER` import.
+
+### Changed
+- **Critical modules: 3 → 2** (effective health). The module that dropped (`analyzer.py`) has `arch_role=core` — its CC=97 is structural, not a defect.
+- **Health distribution**: 48 healthy, 5 moderate, 6 elevated, 1 high, 2 critical (effective). Raw: 48 healthy, 5 moderate, 3 elevated, 3 high, 3 critical.
+- **Compact insights for core modules**: `analyzer.py` now shows `['core_high_cc', 'core_high_cog', 'core_wide_reach']` instead of `['extreme_cyclomatic', 'extreme_cognitive', 'critical_blast_radius']`.
+- **`_compute_effective_health()`**: New function in `metrics.py`. Called after `_assess_health()` in `calculate_module_metrics()`.
+- **`rewrite_insights_for_core()`**: New function in `insights.py`. Called from both `_build_compact_context()` and `_build_full_context()` in `context.py`.
+
+### Performance
+- **350 tests** passing. **0 import cycles.**
+- **62 modules**, 10,302 LOC.
+
 ## [0.6.1] - 2026-05-02
 
 ### Fixed

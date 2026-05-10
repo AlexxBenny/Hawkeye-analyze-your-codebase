@@ -394,6 +394,7 @@ class TestContextIntegration:
                 module_name="proj.core", ca=0, ce=0,
                 instability=0.0, loc=50, import_count=0,
                 fan_in=0, fan_out=0, health="healthy",
+                raw_health="healthy",
             ),
         }
 

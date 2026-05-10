@@ -84,7 +84,7 @@ class TestCalculateModuleMetrics:
         m = ModuleMetrics(
             module_name="x", ca=0, ce=0, instability=0.0,
             loc=10, import_count=0, fan_in=0, fan_out=0,
-            health="healthy",
+            health="healthy", raw_health="healthy",
         )
         assert m.health_emoji == "✅"
 

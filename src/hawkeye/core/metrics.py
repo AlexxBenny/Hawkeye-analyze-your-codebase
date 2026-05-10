@@ -41,7 +41,8 @@ class ModuleMetrics:
     import_count: int   # Total import statements
     fan_in: int         # Same as Ca (incoming edges)
     fan_out: int        # Same as Ce (outgoing edges)
-    health: str         # "healthy", "moderate", "elevated", "high", "critical", "unknown"
+    health: str         # Effective health (agent-facing, adjusted for arch_role)
+    raw_health: str = "unknown"  # Raw health from _assess_health() before adjustment
     # Language (default: python for backward compatibility)
     language: str = "python"
     # Symbol counts
@@ -79,6 +80,7 @@ class ModuleMetrics:
             "instability": self.instability,
             "loc": self.loc,
             "health": self.health,
+            "raw_health": self.raw_health,
             "cyclomatic": self.cyclomatic_complexity,
             "cognitive": self.cognitive_complexity,
             "abstractness": self.abstractness,
@@ -330,6 +332,28 @@ def _assess_health(
     return "healthy"
 
 
+def _compute_effective_health(raw_health: str, arch_role: str, role: str) -> str:
+    """Adjust health for architectural role.
+
+    Core modules cap at 'elevated' — their complexity is structural,
+    not pathological.  Test modules cap at 'moderate' — high CC from
+    many test methods is normal coverage, not risk.
+
+    Args:
+        raw_health: What _assess_health() computed from raw metrics.
+        arch_role: 'core', 'orchestrator', 'hub-by-design', or ''.
+        role: 'test', 'init', 'config', or 'source'.
+
+    Returns:
+        Effective health label for agent consumption.
+    """
+    if arch_role == "core" and raw_health in ("critical", "high"):
+        return "elevated"
+    if role == "test" and raw_health in ("critical", "high"):
+        return "moderate"
+    return raw_health
+
+
 # ── Edit cost estimation ─────────────────────────────────────────
 
 
@@ -531,6 +555,7 @@ def calculate_module_metrics(
             adaptive=role_adaptive,
             module_role=d["role"], arch_role=arch_role,
         )
+        effective = _compute_effective_health(health, arch_role, d["role"])
 
         results[module_name] = ModuleMetrics(
             module_name=module_name,
@@ -542,7 +567,8 @@ def calculate_module_metrics(
             import_count=d["import_count"],
             fan_in=d["ca"],
             fan_out=d["ce"],
-            health=health,
+            health=effective,
+            raw_health=health,
             class_count=d["class_count"],
             function_count=d["function_count"],
             method_count=d["method_count"],

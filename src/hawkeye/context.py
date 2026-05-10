@@ -48,7 +48,8 @@ def build_file_context(
         Complete context dict.
     """
     from .core.insights import (classify_risk, derive_module_insights,
-                                insights_compact, insights_full)
+                                insights_compact, insights_full,
+                                rewrite_insights_for_core)
     from .core.metrics import compute_edit_cost
 
     node = graph.nodes[module]
@@ -77,6 +78,7 @@ def build_file_context(
             derive_fn=derive_module_insights,
             classify_fn=classify_risk,
             edit_cost_fn=compute_edit_cost,
+            rewrite_core_fn=rewrite_insights_for_core,
         )
 
     # ── Non-compact mode: full detail for CLI/renderers ───────
@@ -95,6 +97,7 @@ def build_file_context(
         insights_full_fn=insights_full,
         derive_fn=derive_module_insights,
         classify_fn=classify_risk,
+        rewrite_core_fn=rewrite_insights_for_core,
     )
 
 
@@ -103,6 +106,7 @@ def _build_compact_context(
     module, node, m, graph, module_metrics, transitive,
     cycles, cycle_report, config, git_history,
     insights_compact_fn, derive_fn, classify_fn, edit_cost_fn,
+    rewrite_core_fn,
 ) -> dict:
     """Token-efficient compact context for AI agents (~200 tokens).
 
@@ -187,8 +191,10 @@ def _build_compact_context(
         thresholds=t,
         arch_role=arch_role,
     )
+    if arch_role == "core":
+        insights = rewrite_core_fn(insights)
     if insights:
-        result["insights"] = insights_compact_fn(insights)
+        result["insights"] = insights_compact_fn(insights)[:3]
 
     # Risk profile (1 token)
     risk = classify_fn(
@@ -224,7 +230,7 @@ def _build_full_context(
     *,
     module, node, m, graph, module_metrics, transitive,
     cycles, cycle_report, symbol_tables, config, git_history,
-    insights_full_fn, derive_fn, classify_fn,
+    insights_full_fn, derive_fn, classify_fn, rewrite_core_fn,
 ) -> dict:
     """Full-detail context for CLI, HTML renderers, and debugging.
 
@@ -255,6 +261,7 @@ def _build_full_context(
             "ca": m.ca, "ce": m.ce,
             "instability": m.instability,
             "health": m.health,
+            "raw_health": m.raw_health,
             "cyclomatic_complexity": m.cyclomatic_complexity,
             "cognitive_complexity": m.cognitive_complexity,
             "classes": m.class_count,
@@ -320,6 +327,8 @@ def _build_full_context(
         thresholds=t,
         arch_role=arch_role,
     )
+    if arch_role == "core":
+        insights = rewrite_core_fn(insights)
     if insights:
         result["insights"] = insights_full_fn(insights)
 

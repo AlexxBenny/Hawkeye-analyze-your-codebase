@@ -219,6 +219,9 @@ Machine-readable labels derived deterministically from metrics. No natural langu
 | `isolated` | info | No internal dependencies or dependents |
 | `high_fan_out` | info | Imports many modules (high coordination surface) |
 | `wide_transitive_reach` | info | Transitive impact much wider than direct |
+| `core_high_cc` | info | High cyclomatic complexity (structural in `arch_role=core` modules) |
+| `core_high_cog` | info | High cognitive complexity (structural in `arch_role=core` modules) |
+| `core_wide_reach` | info | Wide blast radius (expected for `arch_role=core` modules) |
 
 ### Risk Profiles
 
@@ -241,10 +244,12 @@ Five-level composite assessment (monotonic severity):
 |-------|-------|---------|
 | `healthy` | ✅ | No coupling or complexity concerns |
 | `moderate` | 🟡 | Mild elevation in one dimension |
-| `elevated` | 🟠 | Notable complexity or coupling |
+| `elevated` | 🟠 | Notable complexity or coupling. If `arch_role=core`: structural — safe to edit |
 | `high` | 🔴 | High risk in multiple dimensions |
 | `critical` | 🔥 | Extreme values — needs decomposition |
 | `unknown` | ❓ | File could not be parsed (syntax error) |
+
+> **Note:** `health` reflects *effective* health, adjusted for architectural role. Core modules cap at `elevated` (complexity is structural, not pathological). Raw metric-based health is available as `raw_health` in full mode.
 
 ---
 
@@ -508,7 +513,7 @@ src/hawkeye/
     └── json_renderer.py    # Structured JSON
 ```
 
-62 modules, 10,174 LOC, 0 import cycles. 350 tests across 12 test files. Python 3.10+.
+62 modules, 10,302 LOC, 0 import cycles. 350 tests across 12 test files. Python 3.10+.
 
 ## License
 
